@@ -2,9 +2,28 @@ import rtmidi
 import asyncio
 import aiohttp
 from FX import FXBuild
+# Storm
+#Mon - 185 - condition to on:  >= multi note on (Over 4 notes) + over 50% velocity
+#BG - 163 - always ON - Brigthness - velocity, color - notr (in blue to white range) (we need to set constant Spped and intensity)
+#Runner - 28 - condition to on: >= one note on , color magenta , velocity-> speed , multi nots ->intesity
 
-ip = "192.168.0.121"
-ip2 = "192.168.0.190"
+# rainbow -
+#Mon - 103 - condition to on any note  - Velocity -> Intensity , color -> glitter: white, bg: random on each note
+#BG - 163 - always ON - ALWAYS ON - color bg light blue - FX color - white
+#Runner - 33 - condition to on: >= one note on , note -> color, velocity -> speed + brithness, multi nots ->intesity
+
+# spring -MAYBE ADD RED
+#Mon - 103 - 4 segments - condition to on any note: random on segments  - Velocity -> Intensity , color -> green /fx color-white
+#BG - 60 always ON - Brigthness - velocity , color -  yellow\white spring vibe, speed 23 , intesity 60
+#Runner - 140 - condition to on: >= one note, color blue \ white , velocity -> brightness + speed
+
+# summer -MAYBE ADD RED
+#Mon - 104 (Sunrise) - 4 segments always on (effect apply on each segment, speed + random on each segment=[seed+r]) - Velocity -> speed=seed
+#BG - 56 (Tri-Fade) always ON - Brigthness - velocity , color -  [yellow,red,orange], speed - constant (slow)
+#Runner - 0 (Solid) - condition to on: >= one note, color red/orange/yellow/white , velocity -> brightness
+
+ip = "192.168.1.136"
+ip2 = "192.168.1.147"
 
 numOfKeys= 48  # num of Piano Keys
 minKeyValue = 36 # lowest Key note num
@@ -88,13 +107,14 @@ async def process_midi_events():
         await send_request(url2)
 
         while True:
-            m = midiin.getMessage(0.01)  # some timeout in ms
+            m = midiin.getMessage(0.01)# some timeout in ms
             if m:
                 await handle_midi_message(m)
     else:
         print('NO MIDI INPUT PORTS!')
 
 async def handle_midi_message(midi):
+
     global active_notes
     #global active_velocity
 
