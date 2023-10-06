@@ -2,6 +2,7 @@ import rtmidi
 import asyncio
 import aiohttp
 from FX import FXBuild
+from utils import parallel_update_led
 # Storm
 #Mon - 185 - condition to on:  >= multi note on (Over 4 notes) + over 50% velocity
 #BG - 163 - always ON - Brigthness - velocity, color - notr (in blue to white range) (we need to set constant Spped and intensity)
@@ -38,7 +39,7 @@ chaseOnBlack = FXBuild("chase",28,"",[0,0,0],200,"","")
 solid = FXBuild("solid", 0, "","","","","")
 
 #piano 6 section - acordding to HSV Coloe RGB graph
-intervals =[]
+intervals = []
 for i in range(1,7,1):
     intervals.append((i*interval)+minKeyValue)
 
@@ -78,20 +79,6 @@ def color(note_number):
     return Red,Green,Blue
 
 
-async def send_request(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                pass
-                #print(f"Request sent successfully: {url}")
-
-async def send_request2(url2):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url2) as response:
-            if response.status == 200:
-               pass
-                #print(f"Request sent successfully: {url2}")
-
 async def process_midi_events():
     ports = range(midiin.getPortCount())
     if ports:
@@ -103,8 +90,10 @@ async def process_midi_events():
         # set fx setting
         url = f'http://{ip}/win&A=0&TT=50&FX={chaseOnBlack.index}&SX={chaseOnBlack.speed}&R2={chaseOnBlack.bgcolor[0]}&G2={chaseOnBlack.bgcolor[1]}&B2={chaseOnBlack.bgcolor[2]}'
         url2 = f'http://{ip2}/win&A=0&TT=50&FX={solid.index}'
-        await send_request(url)
-        await send_request(url2)
+        await parallel_update_led([url, url2])
+
+        # await send_request(url)
+        # await send_request(url2)
 
         while True:
             m = midiin.getMessage(0.01)# some timeout in ms
@@ -118,7 +107,11 @@ async def handle_midi_message(midi):
     global active_notes
     #global active_velocity
 
-
+    # each time we receive information, note-on or note-off the state is updated
+    # each effect in each vibe is a function of the state, that is, any mutation to the state causing
+    # the effect to re-compute its properties. Therefore, we can describe the flow as:
+    # information from key -> update-state -> vibe ->  compute new properties/store em -> update led
+    # the state contains information about active notes and current velocity
 
     if midi.isNoteOn():
         note_number = midi.getNoteNumber()
@@ -143,8 +136,9 @@ async def handle_midi_message(midi):
         if not active_notes:
             url = f'http://{ip}/win&A=0&TT=0'
             url2 =  f'http://{ip2}/win&A=0&TT=0'
-            await send_request(url)
-            await send_request2(url2)
+            await parallel_update_led([url, url2])
+            # await send_request(url)
+            # await send_request2(url2)
        # print(f'OFF: Note {note_number}')
     if active_notes:
         total_velocity = sum(active_notes.values()) // len(active_notes.keys())
@@ -162,8 +156,7 @@ async def handle_midi_message(midi):
 
         url = f'http://{ip}/win&A={total_velocity}&R={red_avg}&B={blue_avg}&G={green_avg}&TT=50&'
         url2 = f'http://{ip2}/win&A={total_velocity}&R={red_avg}&B={blue_avg}&G={green_avg}&&TT=50&'
-        await send_request(url)
-        await send_request2(url2)
+        await parallel_update_led([url, url2])
         #print(f'Active notes: {active_notes} {total_velocity} B={blue_avg}&G={green_avg}&R2={green_avg} ')
 
     elif midi.isController():
