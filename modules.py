@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple, List, Dict
 from dataclasses import dataclass, field, fields, asdict
 import urllib.parse
 import random
@@ -6,6 +6,13 @@ from utils import parallel_update_led
 
 
 class State:
+    """Minimal musical state extracted directly from MIDI events.
+
+    Kept intentionally small: active notes (for chord), average velocity and
+    note index (for simple mappings), and precomputed intervals (for color
+    mapping helpers). A real-time engine may be attached at runtime as
+    `state.rt` to provide higher-level features (chord/scale/emotion).
+    """
     def __init__(self, min_key_val=36, max_key_val=84, num_intervals=6):
         self.active_notes2velocity = {}
         self.min_key_val = min_key_val
@@ -27,7 +34,7 @@ class State:
         self.history = {}
 
     def update(self, midi) -> None:
-        """@Pre: midi is on or off."""
+        """Update active notes from a single MIDI message (note on/off)."""
         note_number = midi.getNoteNumber()
         if midi.isNoteOn():
             velocity = midi.getVelocity()
@@ -38,6 +45,11 @@ class State:
         self.reduce_stats_()
 
     def reduce_stats_(self):
+        """Compute simple averages from currently held notes.
+
+        - avg_notes: average note number (rough register/centroid)
+        - avg_velocity: average velocity (how hard you currently play)
+        """
         if len(self.active_notes2velocity) > 0:
             self.avg_notes = sum(self.active_notes2velocity.keys()) // len(self.active_notes2velocity)
             self.avg_velocity = sum(self.active_notes2velocity.values()) // len(self.active_notes2velocity)
@@ -58,9 +70,9 @@ class Effect:
     intensity: Optional[int] = field(default=None, metadata=request_alias("IX"))
 
     # mark list values with #L_ alias.
-    primary_color: (int, int, int) = field(default=None, metadata=request_alias("#L_R,G,B"))
-    secondary_color: (int, int, int) = field(default=None, metadata=request_alias("#L_R2,G2,B2"))
-    third_color: (int, int, int) = field(default=None, metadata=request_alias("#L_R3,G3,B3"))
+    primary_color: Tuple[int, int, int] = field(default=None, metadata=request_alias("#L_R,G,B"))
+    secondary_color: Tuple[int, int, int] = field(default=None, metadata=request_alias("#L_R2,G2,B2"))
+    third_color: Tuple[int, int, int] = field(default=None, metadata=request_alias("#L_R3,G3,B3"))
 
     def __post_init__(self):
         # Store a deep copy of the non-None initial state
@@ -82,6 +94,9 @@ class Effect:
         dataclass_fields = fields(self)
 
         changed_fields = self.get_changed_fields() if not is_init else None
+        # If nothing changed and not initializing, skip sending
+        if not is_init and not changed_fields:
+            return None
 
         fields_dict = {
             f.metadata.get('alias', f.name): getattr(self, f.name)
@@ -101,8 +116,12 @@ class Effect:
         return query_string
 
     @staticmethod
-    def convert_list_values(data: {}) -> {}:
-        "Convert list keys and values, such that each key is mapped to its value"
+    def convert_list_values(data: Dict) -> Dict:
+        """Convert WLED list encodings like '#L_R,G,B' into individual keys.
+
+        WLED expects colors as separate R,G,B params; we store tuples and
+        map them here to the right aliases.
+        """
         result = {}
         for key, val in data.items():
             if key.startswith("#L_"):
@@ -128,7 +147,7 @@ class LEDZone:
             self.behavior(state, self.effect)
         return self.effect.build_request_str(is_init=state is None)
 
-    def set_connection(self, ips: [str]):
+    def set_connection(self, ips: List[str]):
         self.connections = ips
 
     def is_connected(self):
@@ -143,18 +162,19 @@ class Vibe:
     def add_zone(self, name: str, zone: LEDZone):
         self.zones[name] = zone
 
-    def set_connection(self, name: str, ips: [str]):
+    def set_connection(self, name: str, ips: List[str]):
         if name not in self.zones:
             raise ValueError(f"Zone {name} isnt within the current added zones")
 
         self.zones[name].set_connection(ips)
 
-    def compute_http_requests(self, state: State) -> [str]:
+    def compute_http_requests(self, state: State) -> List[str]:
         urls = []
         for zone in self.zones.values():
             if zone.is_connected():
                 props_str = zone.compute_properties(state)
-                urls.extend([f"http://{ip}/win&{props_str}" for ip in zone.connections])
+                if props_str:
+                    urls.extend([f"http://{ip}/win&{props_str}" for ip in zone.connections])
 
         return urls
 
