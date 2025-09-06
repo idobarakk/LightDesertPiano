@@ -99,6 +99,8 @@ def storm_bg(state: State, effect: Effect):
         effect.brightness = STORM_BG_BRIGHTNESS_MIN_VAL
         effect.primary_color = (0, 0, 255)  # Default blue
 
+from itertools import cycle
+iterations = cycle([13,14])
 
 def storm_runner(state: State, effect: Effect):
     """Runner zone: motion and pace driven by note rate and chord colors."""
@@ -115,12 +117,16 @@ def storm_runner(state: State, effect: Effect):
         ov = rt.overrides['runner']
         
         # Engine controls on/off based on musical activity
-        effect.is_on = int(at_least(state=state, num_active_notes=1))
+        # effect.is_on = int(at_least(state=state, num_active_notes=1))
+
+        effect.is_on = 1
         
         if effect.is_on:
             # Engine-controlled speed (based on note rate, not velocity)
-            effect.speed = ov.get('speed', 50)  # Smoothed note rate
-            effect.intensity = state.avg_notes  # Keep this from old behavior for now
+            # effect.speed = ov.get('speed', 50)  # Smoothed note rate
+            effect.speed = next(iterations)
+            effect.brightness = ov.get('brightness', 50)    
+            # effect.intensity = state.avg_notes  # Keep this from old behavior for now
             
             # Chord-based colors for reactive movement
             if 'chord_root' in ov and ov['chord_root'] is not None:

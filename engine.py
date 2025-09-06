@@ -14,9 +14,13 @@ Design goals (musician-friendly):
 from typing import Deque, Tuple, Optional, Dict
 from collections import deque
 import time
+import logging
 
 from harmony import detect_scale, ChordTracker, Chord, Scale, PitchClass
 from emotion import Emotion, combine, ema as ema_vec
+
+# Dedicated logger for emotion/behavior diagnostics
+emo_log = logging.getLogger("emotion")
 
 
 def pitch_class_to_hue(pc: PitchClass) -> float:
@@ -75,7 +79,7 @@ class RTState:
         self.last_rate_calc_ts: float = 0.0
         self.event_count_window: Deque[float] = deque()  # timestamps of recent NoteOn
 
-        self.chord_tracker = ChordTracker(stability_ms=300, hold_ms=800)
+        self.chord_tracker = ChordTracker(stability_ms=60, hold_ms=180)
         self.scale: Optional[Scale] = None
         self.scale_window_s = scale_window_s
         self.last_scale_refresh: float = 0.0
@@ -127,7 +131,7 @@ class RTState:
         now = time.time()
         # Update chord with stability/hold logic
         chord, chord_changed = self.chord_tracker.update(active_notes, now)
-
+        
         # Periodic scale refresh
         if now - self.last_scale_refresh >= 1.0:
             sc = detect_scale(self.events, now=now, window_s=self.scale_window_s)
@@ -152,14 +156,14 @@ class RTState:
         accent_multiplier = 1.0 + tension * 0.5  # tension makes accents stronger
         
         self.overrides['bg'] = {
-            'brightness': int(max(0, min(255, self.vel_s))),
+            'brightness': int(max(0, min(255, self.vel_s // 2))),
             'warmth_bias': warmth_bias,  # for hue shifting toward warm/cool
             'saturation_boost': saturation_boost,  # for more vivid colors
             'chord_root': chord[0] if chord else None,  # current chord root for color
             'scale_root': self.scale[0] if self.scale else None,  # key root for color
         }
         self.overrides['runner'] = {
-            'speed': int(max(0, min(255, self.rate_s * 20))),  # scale rate to SX range
+            'speed': int(max(0, min(255, self.rate_s))),  # scale rate to SX range
             'warmth_bias': warmth_bias,
             'chord_root': chord[0] if chord else None,
         }
@@ -172,4 +176,46 @@ class RTState:
         else:
             # allow behaviors to decay intensity themselves
             self.overrides['mon'] = {}
+
+        # Emotion-to-behavior diagnostics (concise)
+        if chord_changed or (now - (getattr(self, '_last_emolog', 0.0))) >= 1.0:
+            self._last_emolog = now
+            em = tuple(round(x, 2) for x in self.emotion)
+            scale_str = f"{self.scale[0].name if self.scale else '-'}:{scale_mode}" if self.scale else "-"
+            chord_str = f"{chord[0].name}:{chord_quality}:{chord[2]:.2f}" if chord else "-"
+
+            # Predicted colors (match behaviors)
+            # bg color from scale_root + emotion
+            if self.scale is not None:
+                bg_hue = pitch_class_to_hue(self.scale[0])
+                bg_rgb = apply_emotion_to_color(bg_hue, warmth_bias, saturation_boost)
+            else:
+                bg_rgb = None
+            # runner color from chord_root + emotion (half saturation boost)
+            if chord is not None:
+                run_hue = pitch_class_to_hue(chord[0])
+                run_rgb = apply_emotion_to_color(run_hue, warmth_bias, saturation_boost // 2)
+            else:
+                run_rgb = None
+            # mon color only when intensity is present; apply quality tint like behaviors
+            mon_rgb = None
+            mon_ov = self.overrides.get('mon', {})
+            if isinstance(mon_ov, dict) and mon_ov.get('intensity') and chord is not None:
+                mon_hue = pitch_class_to_hue(chord[0])
+                q = chord_quality or 'maj'
+                if q == 'min':
+                    mon_hue = (mon_hue + 240) % 360
+                elif q == 'dom7':
+                    mon_hue = (mon_hue + 45) % 360
+                elif q in ['dim', 'aug']:
+                    mon_hue = (mon_hue + 300) % 360
+                mon_rgb = apply_emotion_to_color(mon_hue, 0.0, 30)
+
+            emo_log.info(
+                f"[EMO] vec={em} rate={self.rate_s:.2f} vel={self.vel_s:.1f} | "
+                f"bg(br={self.overrides['bg']['brightness']}, warm={warmth_bias:.2f}, sat+={saturation_boost}, rgb={bg_rgb}) "
+                f"runner(spd={self.overrides['runner']['speed']}, rgb={run_rgb}) "
+                f"mon(int={mon_ov.get('intensity', 0)}, rgb={mon_rgb}) | "
+                f"scale={scale_str} chord={chord_str}"
+            )
 

@@ -36,11 +36,13 @@ class State:
     def update(self, midi) -> None:
         """Update active notes from a single MIDI message (note on/off)."""
         note_number = midi.getNoteNumber()
+        # note_number = midi.note
         if midi.isNoteOn():
             velocity = midi.getVelocity()
             self.active_notes2velocity[note_number] = velocity
         elif midi.isNoteOff():
-            del self.active_notes2velocity[note_number]
+            # Be robust to out-of-order/missed events; ignore if not present
+            self.active_notes2velocity.pop(note_number, None)
 
         self.reduce_stats_()
 
@@ -68,6 +70,7 @@ class Effect:
     transition_time: int = field(default=50, metadata=request_alias("TT"))
     speed: Optional[int] = field(default=None, metadata=request_alias("SX"))
     intensity: Optional[int] = field(default=None, metadata=request_alias("IX"))
+    # width: Optional[int] = field(default=None, metadata=request_alias("Hezi"))
 
     # mark list values with #L_ alias.
     primary_color: Tuple[int, int, int] = field(default=None, metadata=request_alias("#L_R,G,B"))
@@ -193,7 +196,7 @@ class VibeController:
 
             requests_urls = vibe.compute_http_requests(state)
             if requests_urls:
-                print(requests_urls)
+                # print(requests_urls)
                 await parallel_update_led(requests_urls)
 
         else:

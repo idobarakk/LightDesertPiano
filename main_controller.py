@@ -2,21 +2,23 @@ from modules import Vibe, State, Effect, VibeController, LEDZone
 import asyncio
 import rtmidi
 import time
+import logging
 from globals import STORM_BG_BRIGHTNESS_MIN_VAL
 from behaviors import storm_mon, storm_bg, storm_runner, rainbow_mon, rainbow_bg, rainbow_runner, spring_mon, spring_bg, spring_runner, summer_mon, summer_bg, summer_runner
 from utils import connect_devices, system_report
 from engine import RTState
 
 """
-Entry point: sets up vibes/zones, ingests MIDI quickly, runs a fixed-rate
-render loop (~20 Hz), and lets behaviors translate state to WLED params.
+MIDI Controller Mode: Real-time input from connected MIDI keyboard/controller.
 
-We attach a small real-time engine at `state.rt` that:
-- smooths velocity and note rate,
-- tracks chord (fast, with stability/hold),
-- estimates the key/scale (slow, from recent notes),
-- maintains a tiny 4D emotion vector,
-- provides minimal per-zone overrides for brightness/speed/accents.
+Sets up vibes/zones, connects to MIDI controller, runs a fixed-rate render loop (~20 Hz),
+and lets the emotion-based engine translate musical input to WLED visual effects.
+
+The real-time engine (state.rt) provides:
+- Chord/scale detection from live playing
+- 4D emotion vector (joy/melancholy/tension/blues)
+- Smoothed velocity and note rate
+- Color mapping based on musical harmony
 """
 
 
@@ -64,25 +66,15 @@ def init_vibes() -> VibeController:
 
 
 async def main():
-    import mido
-    import fluidsynth
-
-    from midi_adapter import MidoToRtMidiAdapter
-
-
-    fs = fluidsynth.Synth()
-    fs.start(driver="coreaudio")
-
-    sf2_path = "midi_player/virtual_synth/FluidR3_GM.sf2"
-    mid_path = "midi_player/midi_files/coldplay.mid"
-
-    sfid = fs.sfload(sf2_path)
-    fs.program_select(0, sfid, 0, 0)
-
-    mid = mido.MidiFile(mid_path)
-
+    """Main loop for real-time MIDI controller input."""
+    # Configure logging to show chord detection messages
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
     state = State(min_key_val=36, max_key_val=84, num_intervals=6)
-    # Attach real-time engine without changing State class definition
+    # Attach real-time engine for emotion-based processing
     state.rt = RTState(scale_window_s=3.0)
     vibe_controller = init_vibes()
     connect_devices(vibe_controller)
@@ -91,36 +83,32 @@ async def main():
     ports = range(midi_in.getPortCount())
 
     if ports:
+        print("Available MIDI input ports:")
         for i in ports:
-            print(midi_in.getPortName(i))
-        # midi_in.openPort(0)
+            print(f"  {i}: {midi_in.getPortName(i)}")
+        midi_in.openPort(0)
 
-        # await vibe_controller.set_random_vibe()
         await vibe_controller.set_specific_vibe('storm')
         system_report(vibe_controller)
 
+        print("🎹 Ready for MIDI controller input! Play some chords to see the emotion-based visuals...")
+
         # Fixed-rate render with fast MIDI ingestion
         last_tick = time.time()
-        # while True:
-        #     m = midi_in.getMessage(0.001)  # fast poll
-        for m in mid.play():
-            m = MidoToRtMidiAdapter(m)
+        while True:
+            m = midi_in.getMessage(0.001)  # fast poll
             if m:
                 state.update(m)
                 state.rt.ingest_midi(m, state.active_notes2velocity)
 
-                if m.isNoteOn():
-                    fs.noteon(0, m.getNoteNumber(), m.getVelocity())
-                elif m.isNoteOff():
-                    fs.noteoff(0, m.getNoteNumber())
-
             now = time.time()
-            if now - last_tick >= 0.5:  # ~20 Hz
+            if now - last_tick >= 0.05:  # ~20 Hz
                 state.rt.tick(state.active_notes2velocity)
                 await vibe_controller.fire(state)
                 last_tick = now
     else:
-        print('NO MIDI INPUT PORTS!')
+        print('❌ NO MIDI INPUT PORTS FOUND!')
+        print('   Connect a MIDI controller and try again.')
 
 
 if __name__ == "__main__":
