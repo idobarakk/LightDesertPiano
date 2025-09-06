@@ -61,16 +61,16 @@ async def main():
     
     # Logger levels: show emotion diagnostics, suppress chord logs
     logging.getLogger('emotion').setLevel(logging.INFO)
-    logging.getLogger('chord.system').setLevel(logging.WARNING)
-    logging.getLogger('chord.tracker').setLevel(logging.WARNING)
+    logging.getLogger('chord.system').setLevel(logging.INFO)
+    logging.getLogger('chord.tracker').setLevel(logging.INFO)
     
     # Configuration - change these to try different files
     sf2_path = "midi_player/virtual_synth/FluidR3_GM.sf2"
-    # mid_path = "midi_player/midi_files/soft2.mid"  # Change this file as needed
+    mid_path = "midi_player/midi_files/coldplay.mid"  # Change this file as needed
 
     # mid_path = "midi_player/archive_3/midi 3.mid"
 
-    mid_path = "midi_player/archive_3_trimmed/midi 6.mid"
+    # mid_path = "midi_player/archive_3_trimmed/midi 6.mid"
 
     
     print(f"🎵 Loading MIDI file: {mid_path}")

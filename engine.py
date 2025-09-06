@@ -16,7 +16,8 @@ from collections import deque
 import time
 import logging
 
-from harmony import detect_scale, ChordTracker, Chord, Scale, PitchClass
+from harmony import Chord, Scale, PitchClass
+from harmony_m21 import ChordTrackerM21
 from emotion import Emotion, combine, ema as ema_vec
 
 # Dedicated logger for emotion/behavior diagnostics
@@ -79,7 +80,13 @@ class RTState:
         self.last_rate_calc_ts: float = 0.0
         self.event_count_window: Deque[float] = deque()  # timestamps of recent NoteOn
 
-        self.chord_tracker = ChordTracker(stability_ms=60, hold_ms=180)
+        # music21-backed tracker with short arpeggio latch and longer key window
+        self.chord_tracker = ChordTrackerM21(
+            stability_ms=60,
+            hold_ms=180,
+            chord_arp_window_ms=350,
+            scale_window_s=5.0,
+        )
         self.scale: Optional[Scale] = None
         self.scale_window_s = scale_window_s
         self.last_scale_refresh: float = 0.0
@@ -132,9 +139,9 @@ class RTState:
         # Update chord with stability/hold logic
         chord, chord_changed = self.chord_tracker.update(active_notes, now)
         
-        # Periodic scale refresh
+        # Periodic scale refresh: mirror tracker's current scale
         if now - self.last_scale_refresh >= 1.0:
-            sc = detect_scale(self.events, now=now, window_s=self.scale_window_s)
+            sc = getattr(self.chord_tracker, 'scale', None)
             if sc is not None:
                 self.scale = sc
             self.last_scale_refresh = now
