@@ -24,45 +24,45 @@ def at_least(state: State, num_active_notes: int):
 
 
 def storm_mon(state: State, effect: Effect):
-    """Monument zone: chord-change accents with emotion-driven intensity and colors."""
+    """Monument zone: always on; rate controls brightness; chord colors from engine."""
     
-    # OLD BEHAVIOR (commented out - replaced by emotion engine):
-    # effect.is_on = int(at_least(state=state, num_active_notes=4) and state.avg_velocity >= (VELOCITY_MAX_VAL // 2))
+    # Always on
+    effect.is_on = 1
     
     # NEW ARCHITECTURE: Driven entirely by emotion engine
     rt = getattr(state, 'rt', None)
     if rt and 'mon' in rt.overrides:
         ov = rt.overrides['mon']
-        
-        # Engine controls on/off and intensity based on chord changes and emotion
-        effect.is_on = 1 if 'intensity' in ov and ov['intensity'] > 0 else 0
-        
-        if effect.is_on:
-            effect.intensity = ov['intensity']  # Emotion-scaled intensity
-            
-            # Chord-specific accent colors with quality-based tinting
-            if 'chord_root' in ov and ov['chord_root'] is not None:
-                from engine import pitch_class_to_hue, apply_emotion_to_color
-                base_hue = pitch_class_to_hue(ov['chord_root'])
-                
-                # Quality-based color tinting for musical meaning
-                chord_quality = ov.get('chord_quality', 'maj')
-                if chord_quality == 'min':
-                    base_hue = (base_hue + 240) % 360  # shift toward blue for minor
-                elif chord_quality == 'dom7':
-                    base_hue = (base_hue + 45) % 360   # shift toward amber for dom7
-                elif chord_quality in ['dim', 'aug']:
-                    base_hue = (base_hue + 300) % 360  # shift toward magenta for tension
-                
-                # High saturation for monuments (accents should be vivid)
-                effect.primary_color = apply_emotion_to_color(base_hue, 0.0, 30)
+
+        # Rate controls brightness (note activity level)
+
+        effect.brightness = ov.get('brightness', 0)
+
+        # Chord-specific colors with quality-based tinting
+        if 'chord_root' in ov and ov['chord_root'] is not None:
+            from engine import pitch_class_to_hue, apply_emotion_to_color
+            base_hue = pitch_class_to_hue(ov['chord_root'])
+
+            chord_quality = ov.get('chord_quality', 'maj')
+            if chord_quality == 'min':
+                base_hue = (base_hue + 240) % 360  # shift toward blue for minor
+            elif chord_quality == 'dom7':
+                base_hue = (base_hue + 45) % 360   # shift toward amber for dom7
+            elif chord_quality in ['dim', 'aug']:
+                base_hue = (base_hue + 300) % 360  # shift toward magenta for tension
+
+            effect.primary_color = apply_emotion_to_color(base_hue, 0.0, 30)
+        else:
+            # Default color when no chord detected
+            effect.primary_color = (100, 100, 100)
     else:
-        # No engine available - turn off
-        effect.is_on = 0
+        # No engine available - minimal fallback
+        effect.brightness = STORM_BG_BRIGHTNESS_MIN_VAL
+        effect.primary_color = (100, 100, 100)
 
 
 def storm_bg(state: State, effect: Effect):
-    """Background zone: stable mood canvas driven by scale/key and emotion."""
+    """Background zone: Solid effect with scale/key color and emotion biasing."""
     
     # Always on for background mood
     effect.is_on = 1
@@ -82,7 +82,7 @@ def storm_bg(state: State, effect: Effect):
         ov = rt.overrides['bg']
         
         # Engine-controlled brightness (smoothed velocity)
-        effect.brightness = ov.get('brightness', STORM_BG_BRIGHTNESS_MIN_VAL)
+        # effect.brightness = ov.get('brightness', STORM_BG_BRIGHTNESS_MIN_VAL)
         
         # Scale-based colors with emotion biasing
         if 'scale_root' in ov and ov['scale_root'] is not None:
@@ -103,7 +103,7 @@ def storm_bg(state: State, effect: Effect):
 # iterations = cycle([13,14])
 
 def storm_runner(state: State, effect: Effect):
-    """Runner zone: motion and pace driven by note rate and chord colors."""
+    """Runner zone: rate selects effect (slow/medium/high) and chord sets color."""
     
     # OLD BEHAVIOR (commented out - replaced by emotion engine):
     # effect.is_on = int(at_least(state=state, num_active_notes=1))
@@ -122,11 +122,25 @@ def storm_runner(state: State, effect: Effect):
         effect.is_on = 1
         
         if effect.is_on:
-            # Engine-controlled speed (based on note rate, not velocity)
-            # effect.speed = ov.get('speed', 50)  # Smoothed note rate
-            # effect.speed = next(iterations)
-            effect.brightness = ov.get('brightness', 50)    
-            # effect.intensity = state.avg_notes  # Keep this from old behavior for now
+            # Rate-based effect selection: choose among three WLED effects
+            ov_speed = int(ov.get('speed', 0))  # 0..255 scaled from note rate
+            if ov_speed < 85:
+                # Slow
+                effect.name = 'Android'
+                effect.index = 27
+                effect.speed = 80
+            elif ov_speed < 170:
+                # Medium
+                effect.name = 'Chase'
+                effect.index = 28
+                effect.speed = 120
+            else:
+                # High
+                effect.name = 'Chase 3'
+                effect.index = 54
+                effect.speed = 180
+
+            effect.brightness = ov.get('brightness', 50)
             
             # Chord-based colors for reactive movement
             if 'chord_root' in ov and ov['chord_root'] is not None:

@@ -33,20 +33,25 @@ def init_vibes() -> VibeController:
 
     storm = Vibe()
     controller.add_vibe('storm', storm)
+
     # storm.add_zone('mon',
     #                LEDZone(effect=Effect(name='Rocktaves', index=185, speed=100, intensity=100), behavior=storm_mon))
 
+    # Monument: start with Solid; brightness will follow velocity via behavior
     storm.add_zone('mon',
-                   LEDZone(effect=Effect(name='Solid', index=0, speed=100, intensity=100, is_on=1), behavior=storm_mon))
+                   LEDZone(effect=Effect(name='Solid', index=0, speed=100, intensity=100, is_on=1),
+                          behavior=storm_mon))
+    # Background: use Solid for a clear canvas (color set by engine scale)
     storm.add_zone('bg',
-                   LEDZone(effect=Effect(name='Blurz', index=163, is_on=1, brightness=STORM_BG_BRIGHTNESS_MIN_VAL,
-                                         primary_color=(0, 0, 255)), behavior=storm_bg))
+                   LEDZone(effect=Effect(name='Solid', index=0, is_on=1,
+                                         brightness=STORM_BG_BRIGHTNESS_MIN_VAL,
+                                         primary_color=(0, 0, 255)),
+                          behavior=storm_bg))
+    # Runner: initial effect (slow tier). Behavior will switch by rate.
     storm.add_zone('runner',
-                   LEDZone(effect=Effect(name='Chase', index=28, primary_color=(255, 0, 255),
-                                          transition_time=0,
-                                        #   width=200
-                                          ),
-                                            behavior=storm_runner))
+                   LEDZone(effect=Effect(name='Android', index=27, primary_color=(255, 0, 255),
+                                          transition_time=0),
+                          behavior=storm_runner))
 
     return controller
 
@@ -70,7 +75,7 @@ async def main():
 
     # mid_path = "midi_player/archive_3/midi 3.mid"
 
-    # mid_path = "midi_player/archive_3_trimmed/midi 6.mid"
+    # mid_path = "midi_player/archive_3_trimmed/midi 2.mid"
 
     
     print(f"🎵 Loading MIDI file: {mid_path}")

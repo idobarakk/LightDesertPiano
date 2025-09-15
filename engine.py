@@ -15,6 +15,7 @@ from typing import Deque, Tuple, Optional, Dict
 from collections import deque
 import time
 import logging
+import math
 
 from harmony import Chord, Scale, PitchClass
 from harmony_m21 import ChordTrackerM21
@@ -60,6 +61,86 @@ def apply_emotion_to_color(base_hue: float, warmth_bias: float, saturation_boost
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
+class MonLinReg:
+    """Linear regression-based brightness estimator for monuments.
+
+    - Tracks derivatives (trends) of rate and velocity using linear regression
+    - Brightness goes "mad" on changes, scaled by magnitude
+    - Handles velocity noise while capturing rate stability
+    - Simple softmax normalization to 0-255 range
+    """
+
+    def __init__(self, window_size: int = 10) -> None:
+        self.window_size = window_size
+        self.rate_history: Deque[float] = deque(maxlen=window_size)
+        self.vel_history: Deque[float] = deque(maxlen=window_size)
+        self.time_points = list(range(window_size))  # [0, 1, 2, ..., window_size-1]
+        self.brightness_smooth: float = 100.0  # smoothed output
+
+    def _linear_regression_slope(self, values: Deque[float]) -> float:
+        """Calculate slope of linear regression line through recent values."""
+        if len(values) < 3:
+            return 0.0
+        
+        n = len(values)
+        x_points = self.time_points[-n:]  # use last n time points
+        y_values = list(values)
+        
+        # Linear regression: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+        sum_x = sum(x_points)
+        sum_y = sum(y_values)
+        sum_xy = sum(x * y for x, y in zip(x_points, y_values))
+        sum_x2 = sum(x * x for x in x_points)
+        
+        denominator = n * sum_x2 - sum_x * sum_x
+        if abs(denominator) < 1e-6:
+            return 0.0
+        
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+        return slope
+
+    def step(self, pace: float, vel: float, pace_variance: float = 0.0) -> int:
+        # Add current values to history
+        self.rate_history.append(pace)  # now tracking pace instead of rate
+        self.vel_history.append(vel)
+        
+        # Calculate derivatives (slopes) using linear regression
+        pace_derivative = self._linear_regression_slope(self.rate_history)
+        vel_derivative = self._linear_regression_slope(self.vel_history)
+        
+        # Calculate magnitudes: both change magnitude AND current value magnitude
+        pace_change_magnitude = abs(pace_derivative)  # how big is the pace change?
+        vel_change_magnitude = abs(vel_derivative)    # how big is the velocity change?
+        
+        pace_value_magnitude = pace                   # how big is current pace?
+        vel_value_magnitude = vel / 127.0             # how big is current velocity? (normalized)
+        
+        # Add pace variance as a third factor (captures rhythmic instability)
+        variance_factor = min(1.0, pace_variance * 10.0)  # scale variance to 0-1
+        
+        # Combine: change_magnitude * value_magnitude = total impact
+        # Both matter: big changes at high values = maximum "madness"
+        pace_impact = pace_change_magnitude * (1.0 + pace_value_magnitude)
+        vel_impact = vel_change_magnitude * (1.0 + vel_value_magnitude * 2.0)  # velocity more sensitive
+        variance_impact = variance_factor * 2.0  # rhythmic chaos adds to madness
+        
+        # Total change signal - "madness" factor
+        total_change = pace_impact * 0.4 + vel_impact * 0.5 + variance_impact * 0.1
+        
+        # Softmax-like normalization to 0-1 range
+        # Higher values → closer to 1, but never quite reaches it
+        change_normalized = 1.0 - math.exp(-total_change * 3.0)  # 3.0 is sensitivity
+        
+        # Target brightness based on change
+        target_brightness = 30 + change_normalized * 225  # 30-255 range
+        
+        # Smooth the output to avoid jitter
+        alpha = 0.15  # smoothing factor
+        self.brightness_smooth += alpha * (target_brightness - self.brightness_smooth)
+        
+        return int(max(15, min(255, self.brightness_smooth)))
+
+
 class RTState:
     """Runtime state wrapper living alongside `modules.State`.
 
@@ -79,6 +160,12 @@ class RTState:
         self.rate_s: float = 0.0
         self.last_rate_calc_ts: float = 0.0
         self.event_count_window: Deque[float] = deque()  # timestamps of recent NoteOn
+        
+        # Pace tracking system
+        self.note_intervals: Deque[float] = deque(maxlen=10)  # time between consecutive notes
+        self.last_note_time: float = 0.0
+        self.pace_s: float = 0.0  # smoothed pace (inverse of interval)
+        self.pace_variance: float = 0.0  # how much pace is changing
 
         # music21-backed tracker with short arpeggio latch and longer key window
         self.chord_tracker = ChordTrackerM21(
@@ -92,6 +179,9 @@ class RTState:
         self.last_scale_refresh: float = 0.0
 
         self.emotion: Emotion = (0.0, 0.0, 0.0, 0.0)
+
+        # Monuments brightness estimator
+        self.mon_linreg = MonLinReg(window_size=8)
 
         # Visual overrides computed by engine; behaviors can respect these if present
         self.overrides: Dict[str, Dict[str, object]] = {  # zone -> params
@@ -111,6 +201,13 @@ class RTState:
             vel = midi_event.getVelocity()
             self.events.append((ts, note, True, vel))
             self.event_count_window.append(ts)
+            
+            # Track pace (time intervals between notes)
+            if self.last_note_time > 0:
+                interval = ts - self.last_note_time
+                if interval > 0.01:  # ignore very rapid repeats (< 10ms)
+                    self.note_intervals.append(interval)
+            self.last_note_time = ts
         elif midi_event.isNoteOff():
             note = midi_event.getNoteNumber()
             self.events.append((ts, note, False, 0))
@@ -119,7 +216,7 @@ class RTState:
         cutoff = ts - self.scale_window_s
         while self.events and self.events[0][0] < cutoff:
             self.events.popleft()
-        while self.event_count_window and self.event_count_window[0] < ts - 1.0:
+        while self.event_count_window and self.event_count_window[0] < ts - 3.0:
             self.event_count_window.popleft()
 
         # Update smoothed velocity toward current average
@@ -129,13 +226,70 @@ class RTState:
             avg_vel = 0.0
         self.vel_s = self.vel_s + 0.2 * (avg_vel - self.vel_s)
 
-        # Note-on rate per second (EMA)
-        inst_rate = len(self.event_count_window)
-        self.rate_s = self.rate_s + 0.2 * (inst_rate - self.rate_s)
+        # Note-on rate per second (EMA) - now over 3-second window
+        inst_rate = len(self.event_count_window) / 3.0  # normalize by window size
+        self.rate_s = self.rate_s + 0.15 * (inst_rate - self.rate_s)  # slower EMA for stability
+        
+        # Calculate pace metrics from note intervals
+        if len(self.note_intervals) >= 3:
+            # Current pace = inverse of average recent interval (notes per second)
+            avg_interval = sum(self.note_intervals) / len(self.note_intervals)
+            current_pace = 1.0 / max(0.01, avg_interval)  # prevent division by zero
+            self.pace_s = self.pace_s + 0.2 * (current_pace - self.pace_s)
+            
+            # Pace variance = how much intervals are changing (captures acceleration/deceleration)
+            if len(self.note_intervals) >= 5:
+                recent_intervals = list(self.note_intervals)[-5:]
+                interval_variance = sum((x - avg_interval) ** 2 for x in recent_intervals) / len(recent_intervals)
+                self.pace_variance = self.pace_variance + 0.1 * (interval_variance - self.pace_variance)
+        else:
+            # Not enough data yet
+            self.pace_s = 0.0
+            self.pace_variance = 0.0
+
+    def _adaptive_energy_brightness(self) -> int:
+        """Change-based brightness with style-adaptive sensitivity."""
+        
+        # Calculate current musical energy (rate + velocity + chord complexity)
+        rate_energy = self.rate_s
+        velocity_energy = self.vel_s / 127.0  # normalize velocity
+        chord_complexity = min(1.0, len(getattr(self, '_last_active_notes', {})) / 6.0)
+        current_energy = rate_energy * 0.5 + velocity_energy * 3.0 + chord_complexity * 2.0
+        
+        # Update long-term style EMA (very slow, tracks musical style)
+        style_alpha = 0.001  # ~17 minute time constant for style adaptation
+        self.rate_style_ema = self.rate_style_ema + style_alpha * (self.rate_s - self.rate_style_ema)
+        
+        # Calculate energy change (gradient)
+        energy_change = current_energy - self.energy_previous
+        self.energy_previous = current_energy
+        
+        # Style-based sensitivity: higher baseline rate = lower sensitivity to changes
+        # Ballads (rate ~2): high sensitivity (~40)
+        # Rock (rate ~8): medium sensitivity (~15) 
+        # Jazz (rate ~12): low sensitivity (~10)
+        style_sensitivity = max(5.0, 50.0 / max(1.0, self.rate_style_ema))
+        
+        # Apply change with style-based scaling
+        brightness_change = energy_change * style_sensitivity
+        
+        # Update brightness with change, but keep it bounded
+        self.brightness_current += brightness_change * 0.3  # damping factor
+        self.brightness_current = max(50.0, min(230.0, self.brightness_current))  # clamp range
+        
+        # Slow drift back toward base level (prevents runaway)
+        base_drift = (self.brightness_base - self.brightness_current) * 0.01
+        self.brightness_current += base_drift
+        
+        return int(self.brightness_current)
 
     def tick(self, active_notes: Dict[int, int]):
         """Run one render tick: chord/scale updates, emotion blend, overrides."""
         now = time.time()
+        
+        # Store active notes for energy calculation
+        self._last_active_notes = active_notes
+        
         # Update chord with stability/hold logic
         chord, chord_changed = self.chord_tracker.update(active_notes, now)
         
@@ -170,19 +324,18 @@ class RTState:
             'scale_root': self.scale[0] if self.scale else None,  # key root for color
         }
         self.overrides['runner'] = {
-            'speed': int(max(0, min(255, self.rate_s))),  # scale rate to SX range
+            'speed': int(max(0, min(255, self.vel_s))),  # scale rate to SX range
             'warmth_bias': warmth_bias,
             'chord_root': chord[0] if chord else None,
         }
-        if chord_changed and chord:
-            self.overrides['mon'] = {
-                'intensity': int(160 * max(0.0, min(1.0, chord[2])) * accent_multiplier),
-                'chord_root': chord[0],  # for chord-specific accent colors
-                'chord_quality': chord[1],  # maj/min/dom7 for color tinting
-            }
-        else:
-            # allow behaviors to decay intensity themselves
-            self.overrides['mon'] = {}
+        # Monument: pace-aware change detection brightness
+        brightness_scaled = self.mon_linreg.step(self.pace_s, self.vel_s, self.pace_variance)
+        
+        self.overrides['mon'] = {
+            'brightness': brightness_scaled,  # sophisticated rate-to-brightness mapping
+            'chord_root': chord[0] if chord else None,  # for chord-specific colors
+            'chord_quality': chord[1] if chord else None,  # maj/min/dom7 for color tinting
+        }
 
         # Emotion-to-behavior diagnostics (concise)
         if chord_changed or (now - (getattr(self, '_last_emolog', 0.0))) >= 1.0:
@@ -204,10 +357,10 @@ class RTState:
                 run_rgb = apply_emotion_to_color(run_hue, warmth_bias, saturation_boost // 2)
             else:
                 run_rgb = None
-            # mon color only when intensity is present; apply quality tint like behaviors
+            # mon color based on current chord; apply quality tint like behaviors
             mon_rgb = None
             mon_ov = self.overrides.get('mon', {})
-            if isinstance(mon_ov, dict) and mon_ov.get('intensity') and chord is not None:
+            if isinstance(mon_ov, dict) and chord is not None:
                 mon_hue = pitch_class_to_hue(chord[0])
                 q = chord_quality or 'maj'
                 if q == 'min':
@@ -219,10 +372,10 @@ class RTState:
                 mon_rgb = apply_emotion_to_color(mon_hue, 0.0, 30)
 
             emo_log.info(
-                f"[EMO] vec={em} rate={self.rate_s:.2f} vel={self.vel_s:.1f} | "
+                f"[EMO] vec={em} rate={self.rate_s:.2f} vel={self.vel_s:.1f} pace={self.pace_s:.2f} pvar={self.pace_variance:.3f} | "
                 f"bg(br={self.overrides['bg']['brightness']}, warm={warmth_bias:.2f}, sat+={saturation_boost}, rgb={bg_rgb}) "
                 f"runner(spd={self.overrides['runner']['speed']}, rgb={run_rgb}) "
-                f"mon(int={mon_ov.get('intensity', 0)}, rgb={mon_rgb}) | "
+                f"mon(br={mon_ov.get('brightness', 0)}, rgb={mon_rgb}) | "
                 f"scale={scale_str} chord={chord_str}"
             )
 
