@@ -30,6 +30,16 @@ from config import (
     RUNNER_EFFECT_HIGH,
     RUNNER_DEFAULT_BRIGHTNESS,
     RUNNER_SATURATION_DIVISOR,
+    SLEEP_MODE_BG_ON,
+    SLEEP_MODE_MON_EFFECT,
+    SLEEP_MODE_MON_SPEED,
+    SLEEP_MODE_MON_INTENSITY,
+    SLEEP_MODE_MON_BRIGHTNESS,
+    SLEEP_MODE_MON_COLOR,
+    SLEEP_MODE_RUNNER_EFFECT,
+    SLEEP_MODE_RUNNER_SPEED,
+    SLEEP_MODE_RUNNER_INTENSITY,
+    SLEEP_MODE_RUNNER_BRIGHTNESS,
 )
 
 
@@ -43,13 +53,29 @@ def storm_mon(state: State, effect: Effect):
     # Always on
     effect.is_on = 1
     
-    # NEW ARCHITECTURE: Driven entirely by emotion engine
+    # Check for sleep mode
     rt = getattr(state, 'rt', None)
+    is_sleep_mode = getattr(rt, 'is_sleep_mode', False) if rt else False
+    
+    if is_sleep_mode:
+        # Sleep mode: Perlin Move effect with red-orange ambient visuals
+        effect.name, effect.index = SLEEP_MODE_MON_EFFECT
+        effect.speed = SLEEP_MODE_MON_SPEED
+        effect.intensity = SLEEP_MODE_MON_INTENSITY
+        effect.brightness = SLEEP_MODE_MON_BRIGHTNESS
+        effect.primary_color = SLEEP_MODE_MON_COLOR
+        return
+    
+    # Active mode: restore Solid effect if needed
+    if effect.index != 0:  # If not already Solid
+        effect.name = 'Solid'
+        effect.index = 0
+    
+    # NEW ARCHITECTURE: Driven entirely by emotion engine
     if rt and 'mon' in rt.overrides:
         ov = rt.overrides['mon']
 
         # Rate controls brightness (note activity level)
-
         effect.brightness = ov.get('brightness', 0)
 
         # Chord-specific colors with quality-based tinting
@@ -78,7 +104,16 @@ def storm_mon(state: State, effect: Effect):
 def storm_bg(state: State, effect: Effect):
     """Background zone: Solid effect with scale/key color and emotion biasing."""
     
-    # Always on for background mood
+    # Check for sleep mode
+    rt = getattr(state, 'rt', None)
+    is_sleep_mode = getattr(rt, 'is_sleep_mode', False) if rt else False
+    
+    if is_sleep_mode:
+        # Sleep mode: background turns off
+        effect.is_on = int(SLEEP_MODE_BG_ON)
+        return
+    
+    # Always on for background mood (when not in sleep mode)
     effect.is_on = 1
     
     # OLD BEHAVIOR (commented out - replaced by emotion engine):
@@ -91,7 +126,6 @@ def storm_bg(state: State, effect: Effect):
     #     effect.reset()
     
     # NEW ARCHITECTURE: Driven entirely by emotion engine
-    rt = getattr(state, 'rt', None)
     if rt and 'bg' in rt.overrides:
         ov = rt.overrides['bg']
         
@@ -119,6 +153,21 @@ def storm_bg(state: State, effect: Effect):
 def storm_runner(state: State, effect: Effect):
     """Runner zone: rate selects effect (slow/medium/high) and chord sets color."""
     
+    # Check for sleep mode
+    rt = getattr(state, 'rt', None)
+    is_sleep_mode = getattr(rt, 'is_sleep_mode', False) if rt else False
+    
+    if is_sleep_mode:
+        # Sleep mode: Theater effect with soft ambient visuals
+        effect.is_on = 1
+        effect.name, effect.index = SLEEP_MODE_RUNNER_EFFECT
+        effect.speed = SLEEP_MODE_RUNNER_SPEED
+        effect.intensity = SLEEP_MODE_RUNNER_INTENSITY
+        effect.brightness = SLEEP_MODE_RUNNER_BRIGHTNESS
+        return
+    
+    # Active mode: effect will be set by engine logic below
+    
     # OLD BEHAVIOR (commented out - replaced by emotion engine):
     # effect.is_on = int(at_least(state=state, num_active_notes=1))
     # if effect.is_on:
@@ -126,7 +175,6 @@ def storm_runner(state: State, effect: Effect):
     #     effect.intensity = state.avg_notes
     
     # NEW ARCHITECTURE: Driven entirely by emotion engine
-    rt = getattr(state, 'rt', None)
     if rt and 'runner' in rt.overrides:
         ov = rt.overrides['runner']
         

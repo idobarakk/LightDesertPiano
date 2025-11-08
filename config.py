@@ -222,6 +222,29 @@ LED_TASK_TIMEOUT_S = 0.5
 
 
 # =============================================================================
+# SLEEP MODE - Inactivity behavior
+# =============================================================================
+
+# Time without MIDI input before entering sleep mode (seconds)
+SLEEP_MODE_TIMEOUT_S = 10.0
+
+# Sleep mode effect configurations
+SLEEP_MODE_BG_ON = False  # Background turns off in sleep mode
+SLEEP_MODE_MON_EFFECT = ("Perlin Move", 147)  # Monument effect in sleep mode
+SLEEP_MODE_RUNNER_EFFECT = ("Theater", 13)  # Runner effect in sleep mode
+
+# Sleep mode visual parameters
+SLEEP_MODE_MON_SPEED = 128  # Monument speed in sleep mode
+SLEEP_MODE_MON_INTENSITY = 128  # Monument intensity in sleep mode
+SLEEP_MODE_MON_BRIGHTNESS = 100  # Monument brightness in sleep mode
+SLEEP_MODE_MON_COLOR = (255, 80, 20)  # Monument color in sleep mode (red-orange)
+
+SLEEP_MODE_RUNNER_SPEED = 100  # Runner speed in sleep mode
+SLEEP_MODE_RUNNER_INTENSITY = 100  # Runner intensity in sleep mode
+SLEEP_MODE_RUNNER_BRIGHTNESS = 80  # Runner brightness in sleep mode
+
+
+# =============================================================================
 # LOGGING - Diagnostic output control
 # =============================================================================
 

@@ -44,6 +44,7 @@ from config import (
     CHORD_STABILITY_MS,
     CHORD_HOLD_MS,
     EMOTION_LOG_INTERVAL_S,
+    SLEEP_MODE_TIMEOUT_S,
 )
 
 # Dedicated logger for emotion/behavior diagnostics
@@ -212,6 +213,10 @@ class RTState:
         self.overrides: Dict[str, Dict[str, object]] = {  # zone -> params
             'bg': {}, 'mon': {}, 'runner': {}
         }
+        
+        # Sleep mode tracking
+        self.is_sleep_mode: bool = False
+        self.last_midi_activity: float = time.time()
 
     def ingest_midi(self, midi_event, active_notes: Dict[int, int]):
         """Ingest a raw MIDI message and update recent-note windows and energy.
@@ -220,6 +225,15 @@ class RTState:
         - active_notes: reference to current held notes (for velocity averaging)
         """
         ts = time.time()
+        
+        # Update last MIDI activity timestamp (for sleep mode detection)
+        self.last_midi_activity = ts
+        
+        # Exit sleep mode on any MIDI activity
+        if self.is_sleep_mode:
+            self.is_sleep_mode = False
+            emo_log.info("[SLEEP] 🎹 Waking up - MIDI activity detected")
+        
         # rtmidi API: duck-typed access; caller ensures isNoteOn/off checks
         if midi_event.isNoteOn():
             note = midi_event.getNoteNumber()
@@ -311,6 +325,12 @@ class RTState:
     def tick(self, active_notes: Dict[int, int]):
         """Run one render tick: chord/scale updates, emotion blend, overrides."""
         now = time.time()
+        
+        # Check for sleep mode transition
+        time_since_activity = now - self.last_midi_activity
+        if not self.is_sleep_mode and time_since_activity >= SLEEP_MODE_TIMEOUT_S:
+            self.is_sleep_mode = True
+            emo_log.info(f"[SLEEP] 😴 Entering sleep mode after {time_since_activity:.1f}s of inactivity")
         
         # Store active notes for energy calculation
         self._last_active_notes = active_notes

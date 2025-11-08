@@ -117,6 +117,18 @@ Controls system-level timing parameters.
 - `MAIN_LOOP_SLEEP_S`: CPU yield sleep time (0.005s)
 - `LED_TASK_TIMEOUT_S`: LED task timeout (0.5s)
 
+### Sleep Mode
+Controls ambient visuals when no one is playing.
+
+- `SLEEP_MODE_TIMEOUT_S`: Inactivity timeout before sleep mode (10.0s)
+- `SLEEP_MODE_BG_ON`: Background on/off in sleep mode (False)
+- `SLEEP_MODE_MON_EFFECT`: Monument effect in sleep mode ("Perlin Move", 147)
+- `SLEEP_MODE_RUNNER_EFFECT`: Runner effect in sleep mode ("Theater", 13)
+- `SLEEP_MODE_MON_SPEED/INTENSITY/BRIGHTNESS/COLOR`: Monument visual parameters (red-orange)
+- `SLEEP_MODE_RUNNER_SPEED/INTENSITY/BRIGHTNESS`: Runner visual parameters
+
+Note: Runner colors flow naturally from the effect; monument uses warm red-orange for ambient glow.
+
 ### Logging
 Controls diagnostic output.
 
@@ -156,6 +168,13 @@ Controls MIDI note range and analysis.
 - Increase `MONUMENT_CHANGE_SENSITIVITY` for more dramatic pops
 - Adjust `MONUMENT_BRIGHTNESS_MIN/MAX` for brightness range
 - Modify `MONUMENT_BRIGHTNESS_WINDOW_SIZE` for smoother/sharper response
+
+### Customizing sleep mode
+- Adjust `SLEEP_MODE_TIMEOUT_S` for faster/slower sleep activation
+- Change `SLEEP_MODE_MON_EFFECT` or `SLEEP_MODE_RUNNER_EFFECT` to different WLED effects
+- Modify `SLEEP_MODE_MON_COLOR` for different monument ambient colors (default: red-orange)
+- Adjust speed/intensity/brightness for different ambient moods
+- Set `SLEEP_MODE_BG_ON = True` to keep background on during sleep
 
 ## Emotion Vectors
 
