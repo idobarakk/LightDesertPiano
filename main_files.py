@@ -3,16 +3,25 @@ import asyncio
 import time
 import mido
 import fluidsynth
-from globals import STORM_BG_BRIGHTNESS_MIN_VAL
+import logging
+import threading
+import queue
+from config import (
+    STORM_BG_BRIGHTNESS_MIN_VAL,
+    ENGINE_SCALE_WINDOW_S,
+    VISUAL_TICK_RATE_S,
+    MIDI_EVENT_QUEUE_SIZE,
+    MAIN_LOOP_SLEEP_S,
+    LED_TASK_TIMEOUT_S,
+    LOG_MIDI_EVENTS,
+    MIDI_MIN_KEY,
+    MIDI_MAX_KEY,
+    MIDI_NUM_INTERVALS,
+)
 from behaviors import storm_mon, storm_bg, storm_runner, rainbow_mon, rainbow_bg, rainbow_runner, spring_mon, spring_bg, spring_runner, summer_mon, summer_bg, summer_runner
 from utils import connect_devices, system_report
 from engine import RTState
 from midi_adapter import MidoToRtMidiAdapter
-import logging
-import threading
-import queue
-
-LOG_MIDI_EVENTS = False
 
 """
 MIDI File Playback Mode: Play MIDI files with FluidSynth audio and visual effects.
@@ -75,7 +84,7 @@ async def main():
 
     # mid_path = "midi_player/archive_3/midi 3.mid"
 
-    # mid_path = "midi_player/archive_3_trimmed/midi 2.mid"
+    # mid_path = "midi_player/archive_3_trimmed/midi_1.mid"
 
     
     print(f"🎵 Loading MIDI file: {mid_path}")
@@ -93,8 +102,8 @@ async def main():
     print(f"📊 MIDI file loaded: {len(mid.tracks)} tracks, {mid.length:.1f} seconds")
 
     # Initialize visual system
-    state = State(min_key_val=36, max_key_val=84, num_intervals=6)
-    state.rt = RTState(scale_window_s=3.0)  # Emotion-based engine
+    state = State(min_key_val=MIDI_MIN_KEY, max_key_val=MIDI_MAX_KEY, num_intervals=MIDI_NUM_INTERVALS)
+    state.rt = RTState(scale_window_s=ENGINE_SCALE_WINDOW_S)  # Emotion-based engine
     vibe_controller = init_vibes()
     connect_devices(vibe_controller)
 
@@ -105,7 +114,7 @@ async def main():
     print("   Audio plays in its own thread; visuals run at a fixed rate.")
 
     # Thread-safe queue for MIDI events from the audio thread
-    event_queue: "queue.Queue[MidoToRtMidiAdapter]" = queue.Queue(maxsize=2048)
+    event_queue: "queue.Queue[MidoToRtMidiAdapter]" = queue.Queue(maxsize=MIDI_EVENT_QUEUE_SIZE)
 
     def playback_worker():
         try:
@@ -162,7 +171,7 @@ async def main():
 
         # Fixed-rate visuals
         now = time.time()
-        if now - last_tick >= 0.05:  # ~20 Hz
+        if now - last_tick >= VISUAL_TICK_RATE_S:
             state.rt.tick(state.active_notes2velocity)
             # Fire LED updates without blocking the timing loop; drop if previous still running
             if led_task is None or led_task.done():
@@ -170,12 +179,12 @@ async def main():
             last_tick = now
 
         # Small sleep to yield
-        await asyncio.sleep(0.005)
+        await asyncio.sleep(MAIN_LOOP_SLEEP_S)
 
     # Wait for any pending LED task to finish briefly
     if led_task is not None:
         try:
-            await asyncio.wait_for(led_task, timeout=0.5)
+            await asyncio.wait_for(led_task, timeout=LED_TASK_TIMEOUT_S)
         except Exception:
             pass
     print("🎵 Playback finished!")

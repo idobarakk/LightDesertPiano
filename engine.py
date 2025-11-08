@@ -20,6 +20,31 @@ import math
 from harmony import Chord, Scale, PitchClass
 from harmony_m21 import ChordTrackerM21
 from emotion import Emotion, combine, ema as ema_vec
+from config import (
+    ENGINE_SCALE_WINDOW_S,
+    ENGINE_VELOCITY_SMOOTHING_ALPHA,
+    ENGINE_RATE_SMOOTHING_ALPHA,
+    ENGINE_RATE_WINDOW_S,
+    ENGINE_PACE_SMOOTHING_ALPHA,
+    ENGINE_PACE_VARIANCE_SMOOTHING_ALPHA,
+    ENGINE_EMOTION_SMOOTHING_ALPHA,
+    MONUMENT_BRIGHTNESS_WINDOW_SIZE,
+    MONUMENT_BRIGHTNESS_SMOOTHING_ALPHA,
+    MONUMENT_BRIGHTNESS_MIN,
+    MONUMENT_BRIGHTNESS_MAX,
+    MONUMENT_CHANGE_SENSITIVITY,
+    PACE_MIN_INTERVAL_S,
+    COLOR_WARMTH_SHIFT_WARM_DEG,
+    COLOR_WARMTH_SHIFT_COOL_DEG,
+    COLOR_BASE_SATURATION,
+    COLOR_TENSION_SATURATION_BOOST_MAX,
+    COLOR_BASE_VALUE,
+    CHORD_ARPEGGIO_WINDOW_MS,
+    CHORD_M21_SCALE_WINDOW_S,
+    CHORD_STABILITY_MS,
+    CHORD_HOLD_MS,
+    EMOTION_LOG_INTERVAL_S,
+)
 
 # Dedicated logger for emotion/behavior diagnostics
 emo_log = logging.getLogger("emotion")
@@ -45,16 +70,16 @@ def apply_emotion_to_color(base_hue: float, warmth_bias: float, saturation_boost
     # Apply warmth bias: positive shifts toward red (0°), negative toward blue (240°)
     if warmth_bias > 0:
         # Shift toward red/orange (warm)
-        hue_shift = warmth_bias * 30  # up to +30° shift
+        hue_shift = warmth_bias * COLOR_WARMTH_SHIFT_WARM_DEG
         biased_hue = (base_hue + hue_shift) % 360
     else:
         # Shift toward blue/teal (cool)
-        hue_shift = abs(warmth_bias) * 60  # up to 60° shift toward blue
+        hue_shift = abs(warmth_bias) * COLOR_WARMTH_SHIFT_COOL_DEG
         biased_hue = (base_hue + 240 - hue_shift) % 360
     
     # Base saturation and value, boosted by tension
-    saturation = min(1.0, 0.8 + saturation_boost / 100.0)  # 0.8-1.0 range
-    value = 0.9  # keep brightness high
+    saturation = min(1.0, COLOR_BASE_SATURATION + saturation_boost / 100.0)
+    value = COLOR_BASE_VALUE
     
     # Convert HSV to RGB
     r, g, b = colorsys.hsv_to_rgb(biased_hue / 360.0, saturation, value)
@@ -129,16 +154,16 @@ class MonLinReg:
         
         # Softmax-like normalization to 0-1 range
         # Higher values → closer to 1, but never quite reaches it
-        change_normalized = 1.0 - math.exp(-total_change * 3.0)  # 3.0 is sensitivity
+        change_normalized = 1.0 - math.exp(-total_change * MONUMENT_CHANGE_SENSITIVITY)
         
         # Target brightness based on change
-        target_brightness = 30 + change_normalized * 225  # 30-255 range
+        brightness_range = MONUMENT_BRIGHTNESS_MAX - MONUMENT_BRIGHTNESS_MIN
+        target_brightness = MONUMENT_BRIGHTNESS_MIN + change_normalized * brightness_range
         
         # Smooth the output to avoid jitter
-        alpha = 0.15  # smoothing factor
-        self.brightness_smooth += alpha * (target_brightness - self.brightness_smooth)
+        self.brightness_smooth += MONUMENT_BRIGHTNESS_SMOOTHING_ALPHA * (target_brightness - self.brightness_smooth)
         
-        return int(max(15, min(255, self.brightness_smooth)))
+        return int(max(MONUMENT_BRIGHTNESS_MIN, min(MONUMENT_BRIGHTNESS_MAX, self.brightness_smooth)))
 
 
 class RTState:
@@ -154,7 +179,7 @@ class RTState:
     - overrides: tiny per-zone hints: bg.brightness, runner.speed, mon.intensity
     """
 
-    def __init__(self, scale_window_s: float = 3.0):
+    def __init__(self, scale_window_s: float = ENGINE_SCALE_WINDOW_S):
         self.events: Deque[Tuple[float, int, bool, int]] = deque()  # (ts, note, is_on, velocity)
         self.vel_s: float = 0.0
         self.rate_s: float = 0.0
@@ -169,10 +194,10 @@ class RTState:
 
         # music21-backed tracker with short arpeggio latch and longer key window
         self.chord_tracker = ChordTrackerM21(
-            stability_ms=60,
-            hold_ms=180,
-            chord_arp_window_ms=350,
-            scale_window_s=5.0,
+            stability_ms=CHORD_STABILITY_MS,
+            hold_ms=CHORD_HOLD_MS,
+            chord_arp_window_ms=CHORD_ARPEGGIO_WINDOW_MS,
+            scale_window_s=CHORD_M21_SCALE_WINDOW_S,
         )
         self.scale: Optional[Scale] = None
         self.scale_window_s = scale_window_s
@@ -181,7 +206,7 @@ class RTState:
         self.emotion: Emotion = (0.0, 0.0, 0.0, 0.0)
 
         # Monuments brightness estimator
-        self.mon_linreg = MonLinReg(window_size=8)
+        self.mon_linreg = MonLinReg(window_size=MONUMENT_BRIGHTNESS_WINDOW_SIZE)
 
         # Visual overrides computed by engine; behaviors can respect these if present
         self.overrides: Dict[str, Dict[str, object]] = {  # zone -> params
@@ -205,7 +230,7 @@ class RTState:
             # Track pace (time intervals between notes)
             if self.last_note_time > 0:
                 interval = ts - self.last_note_time
-                if interval > 0.01:  # ignore very rapid repeats (< 10ms)
+                if interval > PACE_MIN_INTERVAL_S:  # ignore very rapid repeats
                     self.note_intervals.append(interval)
             self.last_note_time = ts
         elif midi_event.isNoteOff():
@@ -216,7 +241,7 @@ class RTState:
         cutoff = ts - self.scale_window_s
         while self.events and self.events[0][0] < cutoff:
             self.events.popleft()
-        while self.event_count_window and self.event_count_window[0] < ts - 3.0:
+        while self.event_count_window and self.event_count_window[0] < ts - ENGINE_RATE_WINDOW_S:
             self.event_count_window.popleft()
 
         # Update smoothed velocity toward current average
@@ -224,24 +249,24 @@ class RTState:
             avg_vel = sum(active_notes.values()) / len(active_notes)
         else:
             avg_vel = 0.0
-        self.vel_s = self.vel_s + 0.2 * (avg_vel - self.vel_s)
+        self.vel_s = self.vel_s + ENGINE_VELOCITY_SMOOTHING_ALPHA * (avg_vel - self.vel_s)
 
-        # Note-on rate per second (EMA) - now over 3-second window
-        inst_rate = len(self.event_count_window) / 3.0  # normalize by window size
-        self.rate_s = self.rate_s + 0.15 * (inst_rate - self.rate_s)  # slower EMA for stability
+        # Note-on rate per second (EMA)
+        inst_rate = len(self.event_count_window) / ENGINE_RATE_WINDOW_S  # normalize by window size
+        self.rate_s = self.rate_s + ENGINE_RATE_SMOOTHING_ALPHA * (inst_rate - self.rate_s)
         
         # Calculate pace metrics from note intervals
         if len(self.note_intervals) >= 3:
             # Current pace = inverse of average recent interval (notes per second)
             avg_interval = sum(self.note_intervals) / len(self.note_intervals)
             current_pace = 1.0 / max(0.01, avg_interval)  # prevent division by zero
-            self.pace_s = self.pace_s + 0.2 * (current_pace - self.pace_s)
+            self.pace_s = self.pace_s + ENGINE_PACE_SMOOTHING_ALPHA * (current_pace - self.pace_s)
             
             # Pace variance = how much intervals are changing (captures acceleration/deceleration)
             if len(self.note_intervals) >= 5:
                 recent_intervals = list(self.note_intervals)[-5:]
                 interval_variance = sum((x - avg_interval) ** 2 for x in recent_intervals) / len(recent_intervals)
-                self.pace_variance = self.pace_variance + 0.1 * (interval_variance - self.pace_variance)
+                self.pace_variance = self.pace_variance + ENGINE_PACE_VARIANCE_SMOOTHING_ALPHA * (interval_variance - self.pace_variance)
         else:
             # Not enough data yet
             self.pace_s = 0.0
@@ -303,15 +328,15 @@ class RTState:
         # Update emotion vector
         chord_quality = chord[1] if chord else None
         scale_mode = self.scale[1] if self.scale else None
-        target = combine(chord_quality, scale_mode, w_chord=0.6, w_scale=0.5)
-        self.emotion = ema_vec(self.emotion, target, alpha=0.15)
+        target = combine(chord_quality, scale_mode)
+        self.emotion = ema_vec(self.emotion, target, alpha=ENGINE_EMOTION_SMOOTHING_ALPHA)
 
         # Compute per-zone overrides using emotion vector for color biasing
         joy, melancholy, tension, blues = self.emotion
         
         # Color biasing from emotion (for behaviors to use)
         warmth_bias = joy - melancholy  # +1 = very warm, -1 = very cool
-        saturation_boost = int(tension * 50)  # tension increases vividness (0-50)
+        saturation_boost = int(tension * COLOR_TENSION_SATURATION_BOOST_MAX)
         
         # Accent strength from emotion
         accent_multiplier = 1.0 + tension * 0.5  # tension makes accents stronger
@@ -338,7 +363,7 @@ class RTState:
         }
 
         # Emotion-to-behavior diagnostics (concise)
-        if chord_changed or (now - (getattr(self, '_last_emolog', 0.0))) >= 1.0:
+        if chord_changed or (now - (getattr(self, '_last_emolog', 0.0))) >= EMOTION_LOG_INTERVAL_S:
             self._last_emolog = now
             em = tuple(round(x, 2) for x in self.emotion)
             scale_str = f"{self.scale[0].name if self.scale else '-'}:{scale_mode}" if self.scale else "-"

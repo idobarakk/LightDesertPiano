@@ -19,6 +19,19 @@ from enum import IntEnum
 import time
 import logging
 
+from config import (
+    CHORD_MIN_SCORE,
+    CHORD_SCORE_COVERAGE_WEIGHT,
+    CHORD_SCORE_PRECISION_WEIGHT,
+    CHORD_STABILITY_MS,
+    CHORD_HOLD_MS,
+    CHORD_CONFIDENCE_MIN_SWITCH,
+    CHORD_CONFIDENCE_DELTA_SAME,
+    SCALE_DETECTION_WINDOW_S,
+    SCALE_HISTOGRAM_BASE_WEIGHT,
+    SCALE_HISTOGRAM_RECENCY_WEIGHT,
+)
+
 
 class PitchClass(IntEnum):
     """Named pitch classes so roots are readable (C=0 .. B=11)."""
@@ -98,7 +111,7 @@ def _score_quality_for_root(pcs: Dict[int, int], root_pc: int, intervals: List[i
     # Weight by how many active pcs belong to the chord set (precision)
     chord_set = { (root_pc + iv) % 12 for iv in intervals }
     precision = sum(1 for pc in pcs if pc in chord_set) / max(len(pcs), 1)
-    return 0.7 * coverage + 0.3 * precision
+    return CHORD_SCORE_COVERAGE_WEIGHT * coverage + CHORD_SCORE_PRECISION_WEIGHT * precision
 
 
 def detect_chord(active_notes: Dict[int, int], now: Optional[float] = None) -> Optional[Chord]:
@@ -128,8 +141,8 @@ def detect_chord(active_notes: Dict[int, int], now: Optional[float] = None) -> O
     for root_pc in candidates:
         for quality, intervals in QUALITY_INTERVALS.items():
             score = _score_quality_for_root(pcs, root_pc, intervals)  # coverage+precision
-            # Require at least a triad coverage ~0.5
-            if score < 0.5:
+            # Require minimum score threshold
+            if score < CHORD_MIN_SCORE:
                 continue
             if best is None or score > best[2]:
                 best = (PitchClass(root_pc), quality, score)
@@ -148,7 +161,7 @@ def _pc_histogram(events: Deque[Tuple[float, int, bool, int]], now: float, windo
             pc = note % 12
             # recency-weighting: linear decay
             w = max(0.0, (ts - cutoff) / window_s)
-            hist[pc] += (vel / 127.0) * (0.5 + 0.5 * w)
+            hist[pc] += (vel / 127.0) * (SCALE_HISTOGRAM_BASE_WEIGHT + SCALE_HISTOGRAM_RECENCY_WEIGHT * w)
     return hist
 
 
@@ -157,7 +170,7 @@ def _rotate_template(template: List[int], root_pc: int) -> set:
     return { (root_pc + t) % 12 for t in template }
 
 
-def detect_scale(events: Deque[Tuple[float, int, bool, int]], now: Optional[float] = None, window_s: float = 3.0) -> Optional[Scale]:
+def detect_scale(events: Deque[Tuple[float, int, bool, int]], now: Optional[float] = None, window_s: float = SCALE_DETECTION_WINDOW_S) -> Optional[Scale]:
     """Estimate the current key/scale from recent notes.
 
     - Input: recent events deque, now timestamp, and window size (seconds)
@@ -196,7 +209,7 @@ class ChordTracker:
       allowing a change, unless the new chord is much more confident.
     """
 
-    def __init__(self, stability_ms: int = 60, hold_ms: int = 300):
+    def __init__(self, stability_ms: int = CHORD_STABILITY_MS, hold_ms: int = CHORD_HOLD_MS):
         self.stability_ms = stability_ms
         self.hold_ms = hold_ms
         self.current: Optional[Chord] = None
@@ -206,8 +219,8 @@ class ChordTracker:
         # Confidence rules:
         # - When switching to a different (root, quality), require an absolute floor
         # - When re-affirming the same (root, quality), require a small improvement
-        self.confidence_min_switch: float = 0.60
-        self.confidence_delta_same: float = 0.02
+        self.confidence_min_switch: float = CHORD_CONFIDENCE_MIN_SWITCH
+        self.confidence_delta_same: float = CHORD_CONFIDENCE_DELTA_SAME
 
     def update(self, active_notes: Dict[int, int], now: Optional[float] = None) -> Tuple[Optional[Chord], bool]:
         """Update tracker with current active notes and return (chord, changed).

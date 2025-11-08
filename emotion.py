@@ -7,34 +7,24 @@ This vector then biases colors and accent strength without hard jumps.
 """
 
 from typing import Tuple, Optional, Dict
+from config import (
+    EMOTION_CHORD_VECTORS,
+    EMOTION_SCALE_VECTORS,
+    EMOTION_CHORD_WEIGHT,
+    EMOTION_SCALE_WEIGHT,
+)
 
 
 # Emotion vector: (joy, melancholy, tension, blues)
 Emotion = Tuple[float, float, float, float]
 
 
-# Chord qualities to emotion contributions (simple, musician-friendly mapping)
-CHORD_TO_VEC: Dict[str, Emotion] = {
-    "maj": (1.0, 0.0, 0.1, 0.1),
-    "maj7": (1.0, 0.0, 0.1, 0.1),
-    "min": (0.1, 1.0, 0.1, 0.1),
-    "min7": (0.1, 1.0, 0.1, 0.1),
-    "dom7": (0.3, 0.1, 0.1, 1.0),
-    "sus2": (0.5, 0.2, 0.2, 0.1),
-    "sus4": (0.5, 0.2, 0.2, 0.1),
-    "dim": (0.2, 0.1, 1.0, 0.1),
-    "aug": (0.4, 0.1, 0.8, 0.1),
-}
+# Chord qualities to emotion contributions (imported from config)
+CHORD_TO_VEC: Dict[str, Emotion] = EMOTION_CHORD_VECTORS
 
 
-# Scale/mode to emotion contributions
-SCALE_TO_VEC: Dict[str, Emotion] = {
-    "major": (0.7, 0.0, 0.1, 0.2),
-    "minor": (0.1, 0.7, 0.1, 0.2),
-    "major_pent": (0.6, 0.0, 0.1, 0.3),
-    "minor_pent": (0.1, 0.6, 0.1, 0.3),
-    "blues": (0.2, 0.2, 0.1, 0.9),
-}
+# Scale/mode to emotion contributions (imported from config)
+SCALE_TO_VEC: Dict[str, Emotion] = EMOTION_SCALE_VECTORS
 
 
 def _normalize(v: Emotion) -> Emotion:
@@ -55,7 +45,7 @@ def ema(old: Emotion, target: Emotion, alpha: float) -> Emotion:
     )
 
 
-def combine(chord_quality: Optional[str], scale_mode: Optional[str], w_chord: float = 0.6, w_scale: float = 0.5) -> Emotion:
+def combine(chord_quality: Optional[str], scale_mode: Optional[str], w_chord: float = EMOTION_CHORD_WEIGHT, w_scale: float = EMOTION_SCALE_WEIGHT) -> Emotion:
     """Combine chord and scale contributions into a target emotion vector.
 
     - chord_quality: 'maj', 'min', 'dom7', etc., or None

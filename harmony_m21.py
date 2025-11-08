@@ -32,6 +32,15 @@ except Exception:  # pragma: no cover - runtime guard if music21 missing
     m21_stream = None  # type: ignore
 
 from harmony import PitchClass, Chord, Scale
+from config import (
+    CHORD_MIN_PITCH_CLASSES,
+    SCALE_MIN_PITCH_CLASSES,
+    CHORD_STABILITY_MS,
+    CHORD_HOLD_MS,
+    CHORD_ARPEGGIO_WINDOW_MS,
+    CHORD_M21_SCALE_WINDOW_S,
+    ENGINE_SCALE_REFRESH_INTERVAL_S,
+)
 
 
 _M21_KIND_TO_QUALITY = {
@@ -91,10 +100,10 @@ class ChordTrackerM21:
 
     def __init__(
         self,
-        stability_ms: int = 60,
-        hold_ms: int = 300,
-        chord_arp_window_ms: int = 300,
-        scale_window_s: float = 5.0,
+        stability_ms: int = CHORD_STABILITY_MS,
+        hold_ms: int = CHORD_HOLD_MS,
+        chord_arp_window_ms: int = CHORD_ARPEGGIO_WINDOW_MS,
+        scale_window_s: float = CHORD_M21_SCALE_WINDOW_S,
     ):
         self.stability_ms = stability_ms
         self.hold_ms = hold_ms
@@ -115,7 +124,7 @@ class ChordTrackerM21:
 
         self.scale: Optional[Scale] = None
         self._last_scale_refresh: float = 0.0
-        self._scale_refresh_s: float = 1.5
+        self._scale_refresh_s: float = ENGINE_SCALE_REFRESH_INTERVAL_S
 
     def _ingest_snapshot(self, active_notes: Dict[int, int], now: float) -> None:
         current_set = set(active_notes.keys())
@@ -141,8 +150,8 @@ class ChordTrackerM21:
         midi_notes: List[int] = list(active_notes.keys())
         midi_notes.extend(n for _, n in self._arp_notes)
         pcs = sorted({ n % 12 for n in midi_notes })
-        # Require at least a triad worth of distinct pitch classes to avoid ambiguity
-        if len(pcs) < 3:
+        # Require minimum distinct pitch classes to avoid ambiguity
+        if len(pcs) < CHORD_MIN_PITCH_CLASSES:
             return None
         # Normalize to single octave to improve analysis stability
         norm_midis = [60 + pc for pc in pcs]  # C4-based
@@ -171,7 +180,7 @@ class ChordTrackerM21:
             return
         uniq_pcs = {n % 12 for n in midi_notes}
         # Require enough diversity to avoid spurious key flips
-        if len(uniq_pcs) < 4:
+        if len(uniq_pcs) < SCALE_MIN_PITCH_CLASSES:
             self._last_scale_refresh = now
             return
         try:

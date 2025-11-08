@@ -14,9 +14,23 @@ color mapping. If no engine is present, storm functions use minimal fallbacks.
 """
 
 from modules import State, Effect, Note2Color
-
-from globals import VELOCITY_MAX_VAL, STORM_BG_BRIGHTNESS_MIN_VAL
 import math
+
+from config import (
+    VELOCITY_MAX_VAL,
+    STORM_BG_BRIGHTNESS_MIN_VAL,
+    MONUMENT_CHORD_HUE_SHIFT_MINOR,
+    MONUMENT_CHORD_HUE_SHIFT_DOM7,
+    MONUMENT_CHORD_HUE_SHIFT_TENSION,
+    MONUMENT_FIXED_SATURATION_BOOST,
+    RUNNER_SPEED_THRESHOLD_SLOW,
+    RUNNER_SPEED_THRESHOLD_MEDIUM,
+    RUNNER_EFFECT_SLOW,
+    RUNNER_EFFECT_MEDIUM,
+    RUNNER_EFFECT_HIGH,
+    RUNNER_DEFAULT_BRIGHTNESS,
+    RUNNER_SATURATION_DIVISOR,
+)
 
 
 def at_least(state: State, num_active_notes: int):
@@ -45,13 +59,13 @@ def storm_mon(state: State, effect: Effect):
 
             chord_quality = ov.get('chord_quality', 'maj')
             if chord_quality == 'min':
-                base_hue = (base_hue + 240) % 360  # shift toward blue for minor
+                base_hue = (base_hue + MONUMENT_CHORD_HUE_SHIFT_MINOR) % 360
             elif chord_quality == 'dom7':
-                base_hue = (base_hue + 45) % 360   # shift toward amber for dom7
+                base_hue = (base_hue + MONUMENT_CHORD_HUE_SHIFT_DOM7) % 360
             elif chord_quality in ['dim', 'aug']:
-                base_hue = (base_hue + 300) % 360  # shift toward magenta for tension
+                base_hue = (base_hue + MONUMENT_CHORD_HUE_SHIFT_TENSION) % 360
 
-            effect.primary_color = apply_emotion_to_color(base_hue, 0.0, 30)
+            effect.primary_color = apply_emotion_to_color(base_hue, 0.0, MONUMENT_FIXED_SATURATION_BOOST)
         else:
             # Default color when no chord detected
             effect.primary_color = (100, 100, 100)
@@ -124,23 +138,17 @@ def storm_runner(state: State, effect: Effect):
         if effect.is_on:
             # Rate-based effect selection: choose among three WLED effects
             ov_speed = int(ov.get('speed', 0))  # 0..255 scaled from note rate
-            if ov_speed < 85:
+            if ov_speed < RUNNER_SPEED_THRESHOLD_SLOW:
                 # Slow
-                effect.name = 'Android'
-                effect.index = 27
-                effect.speed = 80
-            elif ov_speed < 170:
+                effect.name, effect.index, effect.speed = RUNNER_EFFECT_SLOW
+            elif ov_speed < RUNNER_SPEED_THRESHOLD_MEDIUM:
                 # Medium
-                effect.name = 'Chase'
-                effect.index = 28
-                effect.speed = 120
+                effect.name, effect.index, effect.speed = RUNNER_EFFECT_MEDIUM
             else:
                 # High
-                effect.name = 'Chase 3'
-                effect.index = 54
-                effect.speed = 180
+                effect.name, effect.index, effect.speed = RUNNER_EFFECT_HIGH
 
-            effect.brightness = ov.get('brightness', 50)
+            effect.brightness = ov.get('brightness', RUNNER_DEFAULT_BRIGHTNESS)
             
             # Chord-based colors for reactive movement
             if 'chord_root' in ov and ov['chord_root'] is not None:
@@ -148,7 +156,7 @@ def storm_runner(state: State, effect: Effect):
                 base_hue = pitch_class_to_hue(ov['chord_root'])
                 warmth_bias = ov.get('warmth_bias', 0.0)  # Emotion-based warmth
                 # Runners get less saturation boost (more subtle than monuments)
-                saturation_boost = ov.get('saturation_boost', 0) // 2
+                saturation_boost = ov.get('saturation_boost', 0) // RUNNER_SATURATION_DIVISOR
                 effect.primary_color = apply_emotion_to_color(base_hue, warmth_bias, saturation_boost)
             else:
                 # Fallback: neutral color if no chord detected
