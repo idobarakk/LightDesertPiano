@@ -98,7 +98,7 @@ async def main():
 
     # mid_path = "midi_player/archive_3/midi 3.mid"
 
-    # mid_path = "midi_player/archive_3_trimmed/midi 5.mid"
+    mid_path = "midi_player/archive_3_trimmed/midi 6.mid"
 
     
     print(f"🎵 Loading MIDI file: {mid_path}")
@@ -110,23 +110,25 @@ async def main():
     # Use Windows audio driver (dsound for DirectSound, wasapi for Windows Audio Session API)
     # Disable MIDI input by setting midi_driver='' (empty string) since we're playing from a file
     # Try wasapi first (modern), fallback to dsound if needed
-    try:
-        fs.start(driver="wasapi", midi_driver='')
-        print("✅ Audio driver: wasapi (MIDI input disabled)")
-    except Exception as e1:
-        try:
-            fs.start(driver="dsound", midi_driver='')
-            print("✅ Audio driver: dsound (MIDI input disabled)")
-        except Exception as e2:
-            print(f"⚠️  Audio driver error (wasapi): {e1}")
-            print(f"⚠️  Audio driver error (dsound): {e2}")
-            print("   Trying default driver...")
-            try:
-                fs.start(midi_driver='')  # Use default driver, no MIDI input
-                print("✅ Audio driver: default (MIDI input disabled)")
-            except Exception as e3:
-                print(f"❌ Failed to start audio: {e3}")
-                raise
+    # try:
+    #     fs.start(driver="wasapi", midi_driver='')
+    #     print("✅ Audio driver: wasapi (MIDI input disabled)")
+    # except Exception as e1:
+    #     try:
+    #         fs.start(driver="dsound", midi_driver='')
+    #         print("✅ Audio driver: dsound (MIDI input disabled)")
+    #     except Exception as e2:
+    #         print(f"⚠️  Audio driver error (wasapi): {e1}")
+    #         print(f"⚠️  Audio driver error (dsound): {e2}")
+    #         print("   Trying default driver...")
+    #         try:
+    #             fs.start(midi_driver='')  # Use default driver, no MIDI input
+    #             print("✅ Audio driver: default (MIDI input disabled)")
+    #         except Exception as e3:
+    #             print(f"❌ Failed to start audio: {e3}")
+    #             raise
+
+    fs.start(driver="coreaudio")
     sfid = fs.sfload(sf2_path)
     fs.program_select(0, sfid, 0, 0)
     

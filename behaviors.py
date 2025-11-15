@@ -185,16 +185,21 @@ def storm_runner(state: State, effect: Effect):
         effect.is_on = 1
         
         if effect.is_on:
-            # Rate-based effect selection: choose among three WLED effects
-            ov_speed = int(ov.get('speed', 0))  # 0..255 scaled from note rate
+            # NEW: Intensity meter-based effect selection (accumulated momentum)
+            # Speed is now a cumulative value that grows during climax building
+            ov_speed = ov.get('speed', 0.0)  # accumulated momentum (0+, typically 0-20)
+            
+            # OLD (velocity-based, instant values - COMMENTED OUT):
+            # ov_speed = int(ov.get('speed', 0))  # 0..255 scaled from velocity
+            
             if ov_speed < RUNNER_SPEED_THRESHOLD_SLOW:
-                # Slow
+                # Low momentum: calm/building phase
                 effect.name, effect.index, effect.speed = RUNNER_EFFECT_SLOW
             elif ov_speed < RUNNER_SPEED_THRESHOLD_MEDIUM:
-                # Medium
+                # Medium momentum: intensifying
                 effect.name, effect.index, effect.speed = RUNNER_EFFECT_MEDIUM
             else:
-                # High
+                # High momentum: climax/peak
                 effect.name, effect.index, effect.speed = RUNNER_EFFECT_HIGH
 
             # effect.brightness = ov.get('brightness', RUNNER_DEFAULT_BRIGHTNESS)
@@ -205,8 +210,8 @@ def storm_runner(state: State, effect: Effect):
                 base_hue = pitch_class_to_hue(ov['chord_root'])
                 warmth_bias = ov.get('warmth_bias', 0.0)  # Emotion-based warmth
                 # Runners get less saturation boost (more subtle than monuments)
-                saturation_boost = ov.get('saturation_boost', 0) // RUNNER_SATURATION_DIVISOR
-                # saturation_boost = 10
+                # saturation_boost = ov.get('saturation_boost', 0) // RUNNER_SATURATION_DIVISOR
+                saturation_boost = 0
                 effect.primary_color = apply_emotion_to_color(base_hue, warmth_bias, saturation_boost)
             else:
                 # Fallback: neutral color if no chord detected

@@ -59,7 +59,7 @@ def init_vibes() -> VibeController:
                           behavior=storm_bg))
     # Runner: initial effect (slow tier). Behavior will switch by rate.
     storm.add_zone('runner',
-                   LEDZone(effect=Effect(name='Android', index=47, primary_color=(255, 255, 255),
+                   LEDZone(effect=Effect(name='Android', index=0, primary_color=(255, 0, 255),
                                           transition_time=0),
                           behavior=storm_runner))
 

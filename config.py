@@ -184,19 +184,38 @@ MONUMENT_FIXED_SATURATION_BOOST = 30
 # No additional parameters needed - driven entirely by engine
 
 # --- Runner Zone ---
-# Speed thresholds for effect selection (0-255 scale)
-RUNNER_SPEED_THRESHOLD_SLOW = 65   # Below this: slow effect (Android)
-RUNNER_SPEED_THRESHOLD_MEDIUM = 75 # Below this: medium effect (Chase)
-# Above medium threshold: high effect (Chase 3)
+# NEW: Intensity meter thresholds (accumulated momentum values, not instant)
+# These represent cumulative energy buildup during climax building
+RUNNER_SPEED_THRESHOLD_SLOW = 8.0    # < 5 accumulated momentum
+RUNNER_SPEED_THRESHOLD_MEDIUM = 15.0 # < 15 accumulated momentum
+# >= 15 = high accumulated momentum (sustained climax)
+
+# OLD thresholds (velocity-based, instant values - COMMENTED OUT):
+# RUNNER_SPEED_THRESHOLD_SLOW = 65   # Below this: slow effect
+# RUNNER_SPEED_THRESHOLD_MEDIUM = 75 # Below this: medium effect
+
+# IntensityMeter parameters (HYBRID system: derivatives + absolute values)
+INTENSITY_METER_SENSITIVITY = 2.0    # How strongly combined signal affects addition (0.5-2.0 range)
+INTENSITY_METER_PACE_WEIGHT = 0.7    # 70% pace (tempo), 30% velocity (intensity)
+INTENSITY_METER_DECAY = 0.025          # Proportional decay rate (decay = momentum * rate)
+                                      # Creates natural equilibrium where additions = decay
+                                      # 0.05 means momentum decays by 5% per tick
+                                      # At 20Hz: 100% per second (momentum=10 → 0 in ~1 sec when no input)
+
+# Hybrid blend: How much derivatives vs absolute values contribute
+# INTENSITY_METER_DERIVATIVE_WEIGHT = 0.7  # 70% from change (derivatives)
+# INTENSITY_METER_ABSOLUTE_WEIGHT = 0.3    # 30% from current intensity (absolute values)
+# Note: These are hardcoded in IntensityMeter.step() for now
 
 # Runner effect configurations: (name, index, speed)
+# OLD configs (COMMENTED OUT):
 # RUNNER_EFFECT_SLOW = ("Scanner", 40, 20)
 # RUNNER_EFFECT_MEDIUM = ("Colorwaves", 67, 30)
 # RUNNER_EFFECT_HIGH = ("Androiud", 27, 60)
 
-RUNNER_EFFECT_SLOW = ("x", 47, 50)
+RUNNER_EFFECT_SLOW = ("Chase 0", 28, 50)
 RUNNER_EFFECT_MEDIUM = ("Colorwaves", 67, 70)
-RUNNER_EFFECT_HIGH = ("Solid", 0, 100)
+RUNNER_EFFECT_HIGH = ("Chunchun", 111, 100)
 
 # Default brightness when engine doesn't provide one
 RUNNER_DEFAULT_BRIGHTNESS = 50

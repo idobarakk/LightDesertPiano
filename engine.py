@@ -45,6 +45,9 @@ from config import (
     CHORD_HOLD_MS,
     EMOTION_LOG_INTERVAL_S,
     SLEEP_MODE_TIMEOUT_S,
+    INTENSITY_METER_SENSITIVITY,
+    INTENSITY_METER_PACE_WEIGHT,
+    INTENSITY_METER_DECAY,
 )
 
 # Dedicated logger for emotion/behavior diagnostics
@@ -173,6 +176,126 @@ class MonLinReg:
         return int(max(MONUMENT_BRIGHTNESS_MIN, min(MONUMENT_BRIGHTNESS_MAX, self.brightness_smooth)))
 
 
+class IntensityMeter:
+    """Tracks cumulative musical intensity/momentum for runner effect selection.
+    
+    HYBRID APPROACH combines two signals:
+    1. Derivatives (70%): Captures change/direction - building up or calming down
+       - Positive slopes = speeding up, playing harder → positive contribution
+       - Negative slopes = slowing down, playing softer → negative contribution
+    
+    2. Absolute values (30%): Captures current intensity level
+       - Fast tempo + loud playing → positive contribution even when steady
+       - Slow tempo + soft playing → low/negative contribution
+    
+    This ensures both dynamic pianist recordings (high variability) and steady
+    programmed MIDI (constant tempo/velocity) accumulate momentum appropriately.
+    
+    The accumulated value is used for effect tier selection with absolute thresholds.
+    """
+    
+    def __init__(self, sensitivity: float = 2.0, pace_weight: float = 0.7, decay_per_tick: float = 0.05):
+        self.pace_history: Deque[float] = deque(maxlen=10)
+        self.vel_history: Deque[float] = deque(maxlen=10)
+        self.time_points = list(range(10))
+        
+        # The accumulated momentum counter (starts at 0)
+        self.intensity_meter: float = 0.0
+        
+        # Sensitivity: how strongly changes affect the addition (0.5-2.0 typical)
+        self.sensitivity = sensitivity
+        
+        # Weighting between pace and velocity (default: 70% pace, 30% velocity)
+        self.pace_weight = pace_weight
+        self.vel_weight = 1.0 - pace_weight
+        
+        # Natural decay per tick (prevents infinite growth, requires sustained intensity)
+        self.decay_per_tick = decay_per_tick
+    
+    def _linear_regression_slope(self, values: Deque[float]) -> float:
+        """Calculate SIGNED slope (positive = increasing, negative = decreasing)."""
+        if len(values) < 3:
+            return 0.0
+        
+        n = len(values)
+        x_points = self.time_points[-n:]
+        y_values = list(values)
+        
+        sum_x = sum(x_points)
+        sum_y = sum(y_values)
+        sum_xy = sum(x * y for x, y in zip(x_points, y_values))
+        sum_x2 = sum(x * x for x in x_points)
+        
+        denominator = n * sum_x2 - sum_x * sum_x
+        if abs(denominator) < 1e-6:
+            return 0.0
+        
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+        return slope
+    
+    def step(self, pace: float, vel: float) -> float:
+        """Update meter based on HYBRID: derivatives (change) + absolute values (intensity).
+        
+        This hybrid approach ensures:
+        - Dynamic playing (changing tempo/velocity) accumulates momentum from derivatives
+        - Steady intense playing (constant fast/loud) accumulates momentum from absolute values
+        - Both programmed MIDI and pianist recordings work well
+        """
+        self.pace_history.append(pace)
+        self.vel_history.append(vel)
+        
+        # PART 1: Calculate SIGNED derivatives (captures direction/change)
+        pace_derivative = self._linear_regression_slope(self.pace_history)
+        vel_derivative = self._linear_regression_slope(self.vel_history)
+        
+        # Combine derivatives with weighting (default: 70% pace, 30% velocity)
+        derivative_component = (pace_derivative * self.pace_weight + 
+                               vel_derivative * self.vel_weight)
+        
+        # PART 2: Normalize absolute values (captures current intensity level)
+        # Scale pace: typical range 0-15 notes/sec → normalize to 0-1
+        pace_normalized = min(1.0, pace / 15.0)
+        # Scale velocity: 0-127 → normalize to 0-1
+        vel_normalized = vel / 127.0
+        
+        # Combine absolute values with same weighting
+        absolute_component = (pace_normalized * self.pace_weight + 
+                             vel_normalized * self.vel_weight)
+        
+        # HYBRID: Combine derivatives (70%) and absolute values (30%)
+        # Derivatives dominate for dynamic playing, absolutes provide baseline for steady playing
+        combined = derivative_component * 0.6 + absolute_component * 0.4
+        
+        # Map through tanh: returns -1 to +1
+        # Positive = building intensity or high steady intensity
+        # Negative = releasing intensity or low steady intensity
+        addition = math.tanh(combined * self.sensitivity)
+        
+        # ADD to meter (can increase or decrease)
+        self.intensity_meter += addition
+        
+        # PROPORTIONAL decay: decay rate increases with momentum
+        # This creates natural equilibrium - meter stabilizes where additions = decay
+        # Low momentum: small decay (easy to build up)
+        # High momentum: large decay (requires sustained intensity to maintain)
+        if self.intensity_meter > 0:
+            # Base decay + proportional decay (momentum * decay_per_tick)
+            # This ensures equilibrium emerges naturally based on input intensity
+            proportional_decay = self.intensity_meter * self.decay_per_tick
+            self.intensity_meter -= proportional_decay
+        
+        # Keep meter non-negative (calm state = 0, not negative)
+        self.intensity_meter = max(0.0, self.intensity_meter)
+        
+        return self.intensity_meter
+    
+    def reset(self):
+        """Reset meter to zero."""
+        self.pace_history.clear()
+        self.vel_history.clear()
+        self.intensity_meter = 0.0
+
+
 class RTState:
     """Runtime state wrapper living alongside `modules.State`.
 
@@ -214,6 +337,13 @@ class RTState:
 
         # Monuments brightness estimator
         self.mon_linreg = MonLinReg(window_size=MONUMENT_BRIGHTNESS_WINDOW_SIZE)
+        
+        # Runner intensity meter (cumulative momentum tracker)
+        self.intensity_meter = IntensityMeter(
+            sensitivity=INTENSITY_METER_SENSITIVITY,
+            pace_weight=INTENSITY_METER_PACE_WEIGHT,
+            decay_per_tick=INTENSITY_METER_DECAY
+        )
 
         # Visual overrides computed by engine; behaviors can respect these if present
         self.overrides: Dict[str, Dict[str, object]] = {  # zone -> params
@@ -249,6 +379,9 @@ class RTState:
         
         # Reset monument brightness estimator
         self.mon_linreg.reset()
+        
+        # Reset runner intensity meter
+        self.intensity_meter.reset()
         
         # Clear overrides
         self.overrides = {
@@ -410,8 +543,14 @@ class RTState:
             'chord_root': chord[0] if chord else None,  # current chord root for color
             'scale_root': self.scale[0] if self.scale else None,  # key root for color
         }
+        # Runner: NEW - intensity meter based on pace/velocity derivatives
+        # Update intensity meter with current pace and velocity
+        runner_intensity = self.intensity_meter.step(self.pace_s, self.vel_s)
+        
         self.overrides['runner'] = {
-            'speed': int(max(0, min(255, self.vel_s))),  # scale rate to SX range
+            'speed': runner_intensity,  # cumulative momentum (0+, grows during climax)
+            # OLD (velocity-based, not time-aware):
+            # 'speed': int(max(0, min(255, self.vel_s))),  # scale rate to SX range
             'warmth_bias': warmth_bias,
             'chord_root': chord[0] if chord else None,
         }
@@ -461,7 +600,7 @@ class RTState:
             emo_log.info(
                 f"[EMO] vec={em} rate={self.rate_s:.2f} vel={self.vel_s:.1f} pace={self.pace_s:.2f} pvar={self.pace_variance:.3f} | "
                 f"bg(br={self.overrides['bg']['brightness']}, warm={warmth_bias:.2f}, sat+={saturation_boost}, rgb={bg_rgb}) "
-                f"runner(spd={self.overrides['runner']['speed']}, rgb={run_rgb}) "
+                f"runner(momentum={self.overrides['runner']['speed']:.2f}, rgb={run_rgb}) "
                 f"mon(br={mon_ov.get('brightness', 0)}, rgb={mon_rgb}) | "
                 f"scale={scale_str} chord={chord_str}"
             )
