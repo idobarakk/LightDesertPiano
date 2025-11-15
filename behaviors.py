@@ -66,17 +66,18 @@ def storm_mon(state: State, effect: Effect):
         effect.primary_color = SLEEP_MODE_MON_COLOR
         return
     
+    
     # Active mode: restore Solid effect if needed
-    if effect.index != 0:  # If not already Solid
+    if effect.index != 67:  # If not already Solid
         effect.name = 'Solid'
-        effect.index = 0
+        effect.index = 67
     
     # NEW ARCHITECTURE: Driven entirely by emotion engine
     if rt and 'mon' in rt.overrides:
         ov = rt.overrides['mon']
 
         # Rate controls brightness (note activity level)
-        effect.brightness = ov.get('brightness', 0)
+        # effect.intensity = (ov.get('brightness', 0) * 3) % 255
 
         # Chord-specific colors with quality-based tinting
         if 'chord_root' in ov and ov['chord_root'] is not None:
@@ -196,7 +197,7 @@ def storm_runner(state: State, effect: Effect):
                 # High
                 effect.name, effect.index, effect.speed = RUNNER_EFFECT_HIGH
 
-            effect.brightness = ov.get('brightness', RUNNER_DEFAULT_BRIGHTNESS)
+            # effect.brightness = ov.get('brightness', RUNNER_DEFAULT_BRIGHTNESS)
             
             # Chord-based colors for reactive movement
             if 'chord_root' in ov and ov['chord_root'] is not None:
@@ -205,6 +206,7 @@ def storm_runner(state: State, effect: Effect):
                 warmth_bias = ov.get('warmth_bias', 0.0)  # Emotion-based warmth
                 # Runners get less saturation boost (more subtle than monuments)
                 saturation_boost = ov.get('saturation_boost', 0) // RUNNER_SATURATION_DIVISOR
+                # saturation_boost = 10
                 effect.primary_color = apply_emotion_to_color(base_hue, warmth_bias, saturation_boost)
             else:
                 # Fallback: neutral color if no chord detected

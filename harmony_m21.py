@@ -126,6 +126,18 @@ class ChordTrackerM21:
         self._last_scale_refresh: float = 0.0
         self._scale_refresh_s: float = ENGINE_SCALE_REFRESH_INTERVAL_S
 
+    def reset(self) -> None:
+        """Reset all chord and scale detection state to initial values."""
+        self.current = None
+        self.candidate = None
+        self.candidate_since = None
+        self.last_change = None
+        self._prev_active = set()
+        self._arp_notes.clear()
+        self._key_notes.clear()
+        self.scale = None
+        self._last_scale_refresh = 0.0
+
     def _ingest_snapshot(self, active_notes: Dict[int, int], now: float) -> None:
         current_set = set(active_notes.keys())
         new_on = [n for n in current_set if n not in self._prev_active]

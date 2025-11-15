@@ -103,6 +103,12 @@ class MonLinReg:
         self.time_points = list(range(window_size))  # [0, 1, 2, ..., window_size-1]
         self.brightness_smooth: float = 100.0  # smoothed output
 
+    def reset(self) -> None:
+        """Reset brightness estimator to initial state."""
+        self.rate_history.clear()
+        self.vel_history.clear()
+        self.brightness_smooth = 100.0
+
     def _linear_regression_slope(self, values: Deque[float]) -> float:
         """Calculate slope of linear regression line through recent values."""
         if len(values) < 3:
@@ -218,6 +224,41 @@ class RTState:
         self.is_sleep_mode: bool = False
         self.last_midi_activity: float = time.time()
 
+    def reset(self) -> None:
+        """Reset all engine state to initial values (called when entering sleep mode)."""
+        # Clear event windows
+        self.events.clear()
+        self.event_count_window.clear()
+        self.note_intervals.clear()
+        
+        # Reset smoothed values
+        self.vel_s = 0.0
+        self.rate_s = 0.0
+        self.last_rate_calc_ts = 0.0
+        self.last_note_time = 0.0
+        self.pace_s = 0.0
+        self.pace_variance = 0.0
+        
+        # Reset chord tracker and scale
+        self.chord_tracker.reset()
+        self.scale = None
+        self.last_scale_refresh = 0.0
+        
+        # Reset emotion vector
+        self.emotion = (0.0, 0.0, 0.0, 0.0)
+        
+        # Reset monument brightness estimator
+        self.mon_linreg.reset()
+        
+        # Clear overrides
+        self.overrides = {
+            'bg': {}, 'mon': {}, 'runner': {}
+        }
+        
+        # Clear any cached state
+        if hasattr(self, '_last_active_notes'):
+            self._last_active_notes = {}
+
     def ingest_midi(self, midi_event, active_notes: Dict[int, int]):
         """Ingest a raw MIDI message and update recent-note windows and energy.
 
@@ -330,7 +371,8 @@ class RTState:
         time_since_activity = now - self.last_midi_activity
         if not self.is_sleep_mode and time_since_activity >= SLEEP_MODE_TIMEOUT_S:
             self.is_sleep_mode = True
-            emo_log.info(f"[SLEEP] 😴 Entering sleep mode after {time_since_activity:.1f}s of inactivity")
+            self.reset()  # Reset all state to initial values
+            emo_log.info(f"[SLEEP] 😴 Entering sleep mode after {time_since_activity:.1f}s of inactivity - state reset")
         
         # Store active notes for energy calculation
         self._last_active_notes = active_notes

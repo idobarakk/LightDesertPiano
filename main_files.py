@@ -1,3 +1,14 @@
+# Set up DLL path for FluidSynth on Windows
+import os
+import sys
+if sys.platform == 'win32':
+    # Add current directory to DLL search path for libfluidsynth-3.dll
+    dll_path = os.path.dirname(os.path.abspath(__file__))
+    if hasattr(os, 'add_dll_directory'):
+        os.add_dll_directory(dll_path)
+    # Also set PATH environment variable as fallback
+    os.environ['PATH'] = dll_path + os.pathsep + os.environ.get('PATH', '')
+
 from modules import Vibe, State, Effect, VibeController, LEDZone
 import asyncio
 import time
@@ -48,7 +59,7 @@ def init_vibes() -> VibeController:
 
     # Monument: start with Solid; brightness will follow velocity via behavior
     storm.add_zone('mon',
-                   LEDZone(effect=Effect(name='Solid', index=0, speed=100, intensity=100, is_on=1),
+                   LEDZone(effect=Effect(name='Colorwaves', index=67, speed=30, brightness=200, is_on=1),
                           behavior=storm_mon))
     # Background: use Solid for a clear canvas (color set by engine scale)
     storm.add_zone('bg',
@@ -58,7 +69,8 @@ def init_vibes() -> VibeController:
                           behavior=storm_bg))
     # Runner: initial effect (slow tier). Behavior will switch by rate.
     storm.add_zone('runner',
-                   LEDZone(effect=Effect(name='Android', index=27, primary_color=(255, 0, 255),
+                   LEDZone(effect=Effect(name='Android', index=47, 
+                #    primary_color=(255, 0, 255),
                                           transition_time=0),
                           behavior=storm_runner))
 
@@ -77,6 +89,8 @@ async def main():
     logging.getLogger('emotion').setLevel(logging.INFO)
     logging.getLogger('chord.system').setLevel(logging.INFO)
     logging.getLogger('chord.tracker').setLevel(logging.INFO)
+    # Show device connection warnings and occasional summaries
+    logging.getLogger('device_connection').setLevel(logging.INFO)
     
     # Configuration - change these to try different files
     sf2_path = "midi_player/virtual_synth/FluidR3_GM.sf2"
@@ -84,15 +98,35 @@ async def main():
 
     # mid_path = "midi_player/archive_3/midi 3.mid"
 
-    # mid_path = "midi_player/archive_3_trimmed/midi_1.mid"
+    # mid_path = "midi_player/archive_3_trimmed/midi 5.mid"
 
     
     print(f"🎵 Loading MIDI file: {mid_path}")
     print(f"🔊 Using soundfont: {sf2_path}")
     
-    # Initialize FluidSynth for audio output
+    # Initialize FluidSynth for audio output (no MIDI input needed)
     fs = fluidsynth.Synth()
-    fs.start(driver="coreaudio")
+    
+    # Use Windows audio driver (dsound for DirectSound, wasapi for Windows Audio Session API)
+    # Disable MIDI input by setting midi_driver='' (empty string) since we're playing from a file
+    # Try wasapi first (modern), fallback to dsound if needed
+    try:
+        fs.start(driver="wasapi", midi_driver='')
+        print("✅ Audio driver: wasapi (MIDI input disabled)")
+    except Exception as e1:
+        try:
+            fs.start(driver="dsound", midi_driver='')
+            print("✅ Audio driver: dsound (MIDI input disabled)")
+        except Exception as e2:
+            print(f"⚠️  Audio driver error (wasapi): {e1}")
+            print(f"⚠️  Audio driver error (dsound): {e2}")
+            print("   Trying default driver...")
+            try:
+                fs.start(midi_driver='')  # Use default driver, no MIDI input
+                print("✅ Audio driver: default (MIDI input disabled)")
+            except Exception as e3:
+                print(f"❌ Failed to start audio: {e3}")
+                raise
     sfid = fs.sfload(sf2_path)
     fs.program_select(0, sfid, 0, 0)
     
@@ -192,6 +226,13 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Fix Windows console encoding for emojis
+    import sys
+    import io
+    if sys.platform == 'win32':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    
     print("🎹 MIDI File Player with Emotion-Based Visuals")
     print("=" * 50)
     

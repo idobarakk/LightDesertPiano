@@ -71,6 +71,7 @@ class Effect:
     speed: Optional[int] = field(default=None, metadata=request_alias("SX"))
     intensity: Optional[int] = field(default=None, metadata=request_alias("IX"))
     # width: Optional[int] = field(default=None, metadata=request_alias("Hezi"))
+    hue: Optional[int] = field(default=None, metadata=request_alias("HU"))
 
     # mark list values with #L_ alias.
     primary_color: Tuple[int, int, int] = field(default=None, metadata=request_alias("#L_R,G,B"))

@@ -19,7 +19,7 @@ TUNING GUIDE:
 VELOCITY_MAX_VAL = 255
 
 # Minimum brightness for storm background (always-on ambient level)
-STORM_BG_BRIGHTNESS_MIN_VAL = 15
+STORM_BG_BRIGHTNESS_MIN_VAL = 10
 
 
 # =============================================================================
@@ -185,14 +185,18 @@ MONUMENT_FIXED_SATURATION_BOOST = 30
 
 # --- Runner Zone ---
 # Speed thresholds for effect selection (0-255 scale)
-RUNNER_SPEED_THRESHOLD_SLOW = 85   # Below this: slow effect (Android)
-RUNNER_SPEED_THRESHOLD_MEDIUM = 170 # Below this: medium effect (Chase)
+RUNNER_SPEED_THRESHOLD_SLOW = 65   # Below this: slow effect (Android)
+RUNNER_SPEED_THRESHOLD_MEDIUM = 75 # Below this: medium effect (Chase)
 # Above medium threshold: high effect (Chase 3)
 
 # Runner effect configurations: (name, index, speed)
-RUNNER_EFFECT_SLOW = ("Android", 27, 80)
-RUNNER_EFFECT_MEDIUM = ("Chase", 28, 120)
-RUNNER_EFFECT_HIGH = ("Chase 3", 54, 180)
+# RUNNER_EFFECT_SLOW = ("Scanner", 40, 20)
+# RUNNER_EFFECT_MEDIUM = ("Colorwaves", 67, 30)
+# RUNNER_EFFECT_HIGH = ("Androiud", 27, 60)
+
+RUNNER_EFFECT_SLOW = ("x", 47, 50)
+RUNNER_EFFECT_MEDIUM = ("Colorwaves", 67, 70)
+RUNNER_EFFECT_HIGH = ("Solid", 0, 100)
 
 # Default brightness when engine doesn't provide one
 RUNNER_DEFAULT_BRIGHTNESS = 50

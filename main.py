@@ -48,8 +48,9 @@ def init_vibes() -> VibeController:
     
     # Monument: start with Solid; brightness will follow velocity via behavior
     storm.add_zone('mon',
-                   LEDZone(effect=Effect(name='Solid', index=0, speed=100, intensity=100, is_on=1),
+                   LEDZone(effect=Effect(name='Solid', index=67, speed=50, intensity=100, is_on=1),
                           behavior=storm_mon))
+
     # Background: use Solid for a clear canvas (color set by engine scale)
     storm.add_zone('bg',
                    LEDZone(effect=Effect(name='Solid', index=0, is_on=1,
@@ -58,7 +59,7 @@ def init_vibes() -> VibeController:
                           behavior=storm_bg))
     # Runner: initial effect (slow tier). Behavior will switch by rate.
     storm.add_zone('runner',
-                   LEDZone(effect=Effect(name='Android', index=27, primary_color=(255, 0, 255),
+                   LEDZone(effect=Effect(name='Android', index=47, primary_color=(255, 255, 255),
                                           transition_time=0),
                           behavior=storm_runner))
 
